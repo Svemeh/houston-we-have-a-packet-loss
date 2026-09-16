@@ -73,7 +73,7 @@ const (
 	// 1.1.1.1 is anycast, so it lands on the nearest Cloudflare edge.
 	// ~90 bytes per sample, 3600 per hour = ~320KB/hour, same retention as the dish log.
 	DefaultPingTarget  = "1.1.1.1"
-	DefaultPingLogPath = "ping.jsonl"
+	DefaultPingLogPath = "machineToInternet.jsonl"
 	PingInterval       = 1 * time.Second
 	PingTimeout        = 1 * time.Second // no reply within this counts as lost
 

@@ -1,6 +1,9 @@
 # custom file storing previous antenna readings
 houston.jsonl
 
+# A custom file storing previous machine to internet readings
+machineToInternet.jsonl
+
 # stores previous Celestrak
 starlink.tle
 

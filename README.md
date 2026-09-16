@@ -8,7 +8,7 @@
 - **[logFile.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/logFile.go)** — Persistence. Appends samples to the JSONL log, prunes old ones via temp-file + atomic rename, reads back history with a tail-seek estimate, and downsamples long ranges worst-case-first.
 - **[server.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/server.go)** — HTTP layer. Serves the embedded static files, the SSE stream at `/events`, the raw log at `/log` and downsampled history at `/history`.
 - **[hub.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/hub.go)** — Generic `Hub[T]` that fans samples out to connected browsers and keeps a rolling backfill window.
-- **[ping.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/ping.go)** — Pings `1.1.1.1` from this machine once a second, independent of the dish. Logs to `ping.jsonl`, serves `/pingevents`, `/pinglog` and `/pinghistory` (buckets of max RTT plus sent/lost counts).
+- **[ping.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/ping.go)** — Pings `1.1.1.1` from this machine once a second, independent of the dish. Logs to `machineToInternet.jsonl`, serves `/pingevents`, `/pinglog` and `/pinghistory` (buckets of max RTT plus sent/lost counts).
 - **[sky.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/sky.go)** — Satellite tracking. Loads the observer position from the environment/`.env`, fetches and caches Starlink TLEs from Celestrak, prefilters elements by inclination, propagates them with SGP4 on a tick, and fans snapshots of everything above the horizon out to connected browsers.
 
 #### Testing 
