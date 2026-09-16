@@ -31,9 +31,17 @@ func main() {
 	defer collector.Close()
 
 	// One-shot connectivity test — bypasses hub/logfile machinery.
+	// The ping runs even when the dish is unreachable
 	if *oneShot {
+		checkFailed := false
 		if err := runConnectivityCheck(collector, *requestTimeout); err != nil {
 			fmt.Fprintf(os.Stderr, "✗ could not reach Starlink dish at %s: %v\n", *dishAddress, err)
+			checkFailed = true
+		}
+		if !*noPing && !runPingCheck(*pingTarget) {
+			checkFailed = true
+		}
+		if checkFailed {
 			os.Exit(1)
 		}
 		return
@@ -198,4 +206,20 @@ func runConnectivityCheck(collector TelemetryCollector, timeout time.Duration) e
 	}
 	fmt.Printf("  uptime:    %s\n", time.Duration(sample.UptimeSeconds)*time.Second)
 	return nil
+}
+
+// runPingCheck sends a single echo from this machine and prints the result. It reports whether a reply came back.
+func runPingCheck(target string) bool {
+	sample := NewPinger(target, nil, nil).PingOnce(context.Background())
+	switch {
+	case sample.Error != "":
+		fmt.Fprintf(os.Stderr, "✗ could not ping %s from this machine: %s\n", target, sample.Error)
+		return false
+	case sample.Lost:
+		fmt.Fprintf(os.Stderr, "✗ no reply from %s within %s\n", target, PingTimeout)
+		return false
+	}
+	fmt.Printf("✓ Reached %s from this machine\n", target)
+	fmt.Printf("  ping:      %.1f ms\n", sample.RTTMs)
+	return true
 }
