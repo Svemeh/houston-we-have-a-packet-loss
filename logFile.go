@@ -111,7 +111,7 @@ func (logFile *LogFile[T]) Prune(cutoff time.Time) error {
 	}
 
 	if dropped := total - kept; dropped > 0 {
-		log.Printf("pruned %d samples older than %s (kept %d)", dropped, cutoff.Format(time.RFC3339), kept)
+		log.Printf("pruned %d samples from %s older than %s (kept %d)", dropped, logFile.path, cutoff.Format(time.RFC3339), kept)
 	}
 	return logFile.reopenAppend()
 }

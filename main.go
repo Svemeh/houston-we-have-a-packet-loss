@@ -17,6 +17,9 @@ func main() {
 	oneShot := flag.Bool("oneshot", false, "run a one-shot connectivity check and exit")
 	useFake := flag.Bool("fake", false, "generate fake data instead of polling from the antenna")
 	requestTimeout := flag.Duration("timeout", DefaultRequestTimeout, "per-request timeout")
+	pingTarget := flag.String("ping-target", DefaultPingTarget, "host this machine pings")
+	pingLogPath := flag.String("ping-log", DefaultPingLogPath, "ping log file (JSONL)")
+	noPing := flag.Bool("no-ping", false, "don't ping from this machine")
 	flag.Parse()
 
 	collector, err := newCollector(*useFake, *dishAddress)
@@ -43,6 +46,13 @@ func main() {
 	}
 	defer logFile.Close()
 
+	pingLogFile, err := OpenLogFile[PingSample](*pingLogPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ opening ping log file %q: %v\n", *pingLogPath, err)
+		os.Exit(1)
+	}
+	defer pingLogFile.Close()
+
 	hubCapacity := int(BackfillWindow / DefaultPollInterval)
 	hub := NewHub[TelemetrySample](hubCapacity)
 
@@ -61,14 +71,28 @@ func main() {
 		log.Printf("loaded %d prior samples from %s", len(priorSamples), *logPath)
 	}
 
+	// The ping hub and routes exist even with -no-ping, so the dashboard just
+	// shows old or empty data instead of erroring.
+	pingHub := NewHub[PingSample](int(BackfillWindow / PingInterval))
+	priorPings, err := LoadSamplesSince[PingSample](*pingLogPath, time.Now().Add(-BackfillWindow))
+	if err != nil {
+		log.Printf("warning: could not load prior pings: %v", err)
+	} else if len(priorPings) > 0 {
+		pingHub.SeedHistory(priorPings)
+		log.Printf("loaded %d prior pings from %s", len(priorPings), *pingLogPath)
+	}
+
 	ctx, stopSignalWatch := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stopSignalWatch()
 
 	go pollLoop(ctx, collector, hub, logFile, tracker)
-	go pruneLoop(ctx, logFile)
+	go pruneLoop(ctx, logFile, pingLogFile)
 	go tracker.Run(ctx)
+	if !*noPing {
+		go NewPinger(*pingTarget, pingHub, pingLogFile).Run(ctx)
+	}
 
-	if err := serveDashboard(ctx, *webListenAddress, hub, tracker, *logPath); err != nil {
+	if err := serveDashboard(ctx, *webListenAddress, hub, pingHub, tracker, *logPath, *pingLogPath); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ server error: %v\n", err)
 		os.Exit(1)
 	}
@@ -119,17 +143,24 @@ func pollLoop(ctx context.Context, collector TelemetryCollector, hub *Hub[Teleme
 	}
 }
 
-// pruneLoop prunes the log file to defined size in consts.go "LogRetention"
+// prunable is any log pruneLoop can trim.
+type prunable interface {
+	Prune(cutoff time.Time) error
+}
+
+// pruneLoop prunes each log file to defined size in consts.go "LogRetention"
 // time between each prune is defined in consts.go "LogPruneInterval"
 // This will also run once at startup.
-func pruneLoop(ctx context.Context, logFile *LogFile[TelemetrySample]) {
+func pruneLoop(ctx context.Context, logFiles ...prunable) {
 	ticker := time.NewTicker(LogPruneInterval)
 	defer ticker.Stop()
 
 	prune := func() {
 		cutoff := time.Now().Add(-LogRetention)
-		if err := logFile.Prune(cutoff); err != nil {
-			log.Printf("log prune failed: %v", err)
+		for _, logFile := range logFiles {
+			if err := logFile.Prune(cutoff); err != nil {
+				log.Printf("log prune failed: %v", err)
+			}
 		}
 	}
 	prune()

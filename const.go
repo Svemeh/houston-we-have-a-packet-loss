@@ -69,6 +69,18 @@ const (
 	ServiceFloorElevationDeg = 10.0 // below this the dish won't use it
 	DefaultConeHalfAngleDeg  = 55.0 // Standard/Mini ~110° full FOV; Flat HP ~140°
 
+	// Ping: ICMP echo from this machine, independent of the dish.
+	// 1.1.1.1 is anycast, so it lands on the nearest Cloudflare edge.
+	// ~90 bytes per sample, 3600 per hour = ~320KB/hour, same retention as the dish log.
+	DefaultPingTarget  = "1.1.1.1"
+	DefaultPingLogPath = "ping.jsonl"
+	PingInterval       = 1 * time.Second
+	PingTimeout        = 1 * time.Second // no reply within this counts as lost
+
+	RoutePingEvents  = "/pingevents"
+	RoutePingLog     = "/pinglog"
+	RoutePingHistory = "/pinghistory"
+
 	RouteSky       = "/sky"
 	RouteSkyEvents = "/skyevents"
 
