@@ -501,6 +501,12 @@ footer {
     border-color 0.1s;
 }
 
+/* File names keep their real casing; the footer is otherwise uppercase. */
+.raw-log-link.is-filename {
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
 .raw-log-link:hover {
   color: var(--amber);
   border-color: var(--amber);
