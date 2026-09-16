@@ -47,6 +47,17 @@
       </div>
     </div>
 
+    <div class="readouts is-machine-to-internet">
+      <div class="cell" id="cell-machine-to-internet-ping">
+        <div class="label">Machine-to-Internet Ping <span class="label-note" id="machine-to-internet-ping-target"></span></div>
+        <div class="reading"><span class="reading-value" id="value-machine-to-internet-ping">—</span><span class="reading-unit">ms</span></div>
+      </div>
+      <div class="cell" id="cell-machine-to-internet-loss">
+        <div class="label">Machine-to-Internet Packet Loss <span class="label-note">last 60s</span></div>
+        <div class="reading"><span class="reading-value" id="value-machine-to-internet-loss">—</span><span class="reading-unit">%</span></div>
+      </div>
+    </div>
+
     <div class="range-bar" id="range-bar" role="group" aria-label="Chart time range"></div>
 
     <div class="scopes">
@@ -65,6 +76,14 @@
       <div class="scope">
         <div class="scope-head"><span class="label">Upload</span><span class="scope-range-label" id="chart-range-upload"></span></div>
         <canvas id="chart-upload"></canvas>
+      </div>
+      <div class="scope">
+        <div class="scope-head"><span class="label">Machine-to-Internet Ping</span><span class="scope-range-label" id="chart-range-machine-to-internet-ping"></span></div>
+        <canvas id="chart-machine-to-internet-ping"></canvas>
+      </div>
+      <div class="scope">
+        <div class="scope-head"><span class="label">Machine-to-Internet Packet Loss</span><span class="scope-range-label" id="chart-range-machine-to-internet-loss"></span></div>
+        <canvas id="chart-machine-to-internet-loss"></canvas>
       </div>
     </div>
 
