@@ -30,7 +30,7 @@ const (
 	// single JSON-Lines file (one sample per line).
 	// ~250 bytes per sample, 3600 samples per hour = 900KB/hour
 	// Kept as one file so it's grep-, tail-, and cat-friendly.
-	DefaultLogFilePath = "houston.jsonl"
+	DefaultLogFilePath = "dishToPop.jsonl"
 
 	// LogRetention: samples older than this are pruned from the log.
 	// The log files grows at roughly ~900KB/hour.
@@ -91,7 +91,7 @@ const (
 // TelemetrySample is one poll of the dish: the values it reported, or the
 // error that stopped us from reading them.
 //
-// The JSON tags are the on-disk log format (houston.jsonl) and
+// The JSON tags are the on-disk log format (dishToPop.jsonl) and
 // the wire format the dashboard reads.
 type TelemetrySample struct {
 	Timestamp           time.Time `json:"timestamp"`

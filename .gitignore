@@ -1,5 +1,5 @@
 # custom file storing previous antenna readings
-houston.jsonl
+dishToPop.jsonl
 
 # A custom file storing previous machine to internet readings
 machineToInternet.jsonl
