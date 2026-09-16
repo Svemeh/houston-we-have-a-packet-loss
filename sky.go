@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -303,7 +304,9 @@ func (tracker *SkyTracker) RefreshElements(ctx context.Context) error {
 	}
 
 	// Only cache what parsed, so a truncated download can't poison the restart.
-	if err := os.WriteFile(TLECachePath, rawElements, 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Dir(TLECachePath), 0o755); err != nil {
+		log.Printf("sky: could not create %s: %v", filepath.Dir(TLECachePath), err)
+	} else if err := os.WriteFile(TLECachePath, rawElements, 0o644); err != nil {
 		log.Printf("sky: could not write %s: %v", TLECachePath, err)
 	}
 	tracker.storeElements(tracked, catalogCount, time.Now())

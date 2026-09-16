@@ -26,11 +26,13 @@ const (
 	MaxHistoryRange  = 24 * time.Hour
 	MaxHistoryPoints = 2000
 
+	DataDir = "data"
+
 	// Persistence: relative path to raw telemetry log
 	// single JSON-Lines file (one sample per line).
 	// ~250 bytes per sample, 3600 samples per hour = 900KB/hour
 	// Kept as one file so it's grep-, tail-, and cat-friendly.
-	DefaultLogFilePath = "dishToPop.jsonl"
+	DefaultLogFilePath = DataDir + "/dishToPop.jsonl"
 
 	// LogRetention: samples older than this are pruned from the log.
 	// The log files grows at roughly ~900KB/hour.
@@ -73,7 +75,7 @@ const (
 	// 1.1.1.1 is anycast, so it lands on the nearest Cloudflare edge.
 	// ~90 bytes per sample, 3600 per hour = ~320KB/hour, same retention as the dish log.
 	DefaultPingTarget  = "1.1.1.1"
-	DefaultPingLogPath = "machineToInternet.jsonl"
+	DefaultPingLogPath = DataDir + "/machineToInternet.jsonl"
 	PingInterval       = 1 * time.Second
 	PingTimeout        = 1 * time.Second // no reply within this counts as lost
 
@@ -84,7 +86,7 @@ const (
 	RouteSky       = "/sky"
 	RouteSkyEvents = "/skyevents"
 
-	TLECachePath       = "starlink.tle"
+	TLECachePath       = DataDir + "/starlink.tle"
 	CelestrakUserAgent = "houston-packet-loss/0.1"
 )
 
