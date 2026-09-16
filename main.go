@@ -36,7 +36,7 @@ func main() {
 		return
 	}
 
-	logFile, err := OpenLogFile(*logPath)
+	logFile, err := OpenLogFile[TelemetrySample](*logPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "✗ opening log file %q: %v\n", *logPath, err)
 		os.Exit(1)
@@ -44,7 +44,7 @@ func main() {
 	defer logFile.Close()
 
 	hubCapacity := int(BackfillWindow / DefaultPollInterval)
-	hub := NewTelemetryHub(hubCapacity)
+	hub := NewHub[TelemetrySample](hubCapacity)
 
 	observer, err := LoadObserver()
 	if err != nil {
@@ -53,7 +53,7 @@ func main() {
 	}
 	tracker := NewSkyTracker(observer)
 
-	priorSamples, err := LoadSamplesSince(*logPath, time.Now().Add(-BackfillWindow))
+	priorSamples, err := LoadSamplesSince[TelemetrySample](*logPath, time.Now().Add(-BackfillWindow))
 	if err != nil {
 		log.Printf("warning: could not load prior telemetry: %v", err)
 	} else if len(priorSamples) > 0 {
@@ -77,7 +77,7 @@ func main() {
 // pollLoop polls the dish on a fixed interval until ctx is cancelled, handing
 // each sample to the hub and the log file, and each boresight reading to the
 // sky tracker so the service cone follows where the dish is actually aimed.
-func pollLoop(ctx context.Context, collector TelemetryCollector, hub *TelemetryHub, logFile *LogFile, tracker *SkyTracker) {
+func pollLoop(ctx context.Context, collector TelemetryCollector, hub *Hub[TelemetrySample], logFile *LogFile[TelemetrySample], tracker *SkyTracker) {
 	ticker := time.NewTicker(DefaultPollInterval)
 	defer ticker.Stop()
 
@@ -122,7 +122,7 @@ func pollLoop(ctx context.Context, collector TelemetryCollector, hub *TelemetryH
 // pruneLoop prunes the log file to defined size in consts.go "LogRetention"
 // time between each prune is defined in consts.go "LogPruneInterval"
 // This will also run once at startup.
-func pruneLoop(ctx context.Context, logFile *LogFile) {
+func pruneLoop(ctx context.Context, logFile *LogFile[TelemetrySample]) {
 	ticker := time.NewTicker(LogPruneInterval)
 	defer ticker.Stop()
 

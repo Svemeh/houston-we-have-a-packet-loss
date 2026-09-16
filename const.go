@@ -99,3 +99,5 @@ type TelemetrySample struct {
 	// PollError is set when a poll failed, and empty otherwise.
 	PollError string `json:"poll_error,omitempty"`
 }
+
+func (sample TelemetrySample) SampleTime() time.Time { return sample.Timestamp }
