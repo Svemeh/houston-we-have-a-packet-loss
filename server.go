@@ -21,7 +21,7 @@ const shutdownGracePeriod = 3 * time.Second
 //go:embed static/*
 var embeddedStaticFS embed.FS
 
-func serveDashboard(ctx context.Context, listenAddress string, hub *TelemetryHub, logPath string) error {
+func serveDashboard(ctx context.Context, listenAddress string, hub *TelemetryHub, tracker *SkyTracker, logPath string) error {
 	staticRoot, err := fs.Sub(embeddedStaticFS, "static")
 	if err != nil {
 		return err
@@ -32,6 +32,10 @@ func serveDashboard(ctx context.Context, listenAddress string, hub *TelemetryHub
 	router.HandleFunc(RouteEvents, newSampleStreamHandler(hub))
 	router.HandleFunc(RouteLog, newRawLogHandler(logPath))
 	router.HandleFunc(RouteHistory, newHistoryHandler(logPath))
+	router.HandleFunc(RouteSky, func(response http.ResponseWriter, request *http.Request) {
+		http.ServeFileFS(response, request, staticRoot, "sky.html")
+	})
+	router.HandleFunc(RouteSkyEvents, newSkyStreamHandler(tracker))
 
 	server := &http.Server{Addr: listenAddress, Handler: router}
 
@@ -248,5 +252,38 @@ func newHistoryHandler(logPath string) http.HandlerFunc {
 			KeptCount:      len(points),
 			Samples:        points,
 		})
+	}
+}
+
+func newSkyStreamHandler(tracker *SkyTracker) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		flusher, canFlush := response.(http.Flusher)
+		if !canFlush {
+			http.Error(response, "streaming unsupported", http.StatusInternalServerError)
+			return
+		}
+		response.Header().Set("Content-Type", "text/event-stream")
+		response.Header().Set("Cache-Control", "no-cache")
+		response.Header().Set("Connection", "keep-alive")
+
+		snapshotStream, unsubscribe := tracker.Subscribe()
+		defer unsubscribe()
+
+		for {
+			select {
+			case <-request.Context().Done():
+				return
+			case snapshot, streamOpen := <-snapshotStream:
+				if !streamOpen {
+					return
+				}
+				payload, err := json.Marshal(snapshot)
+				if err != nil {
+					continue
+				}
+				fmt.Fprintf(response, "data: %s\n\n", payload)
+				flusher.Flush()
+			}
+		}
 	}
 }

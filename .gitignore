@@ -1,6 +1,12 @@
 # custom file storing previous antenna readings
 houston.jsonl
 
+# stores previous Celestrak
+starlink.tle
+
+# enviorment variables im hoping to remove later
+.env
+
 # === Go Artifacts ===
 # Binaries and executables
 *.exe

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sky View — Houston, We Have a Packet Loss</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/sky.css">
+  <script src="/sky.js" defer></script>
+</head>
+
+<body>
+  <div class="console">
+
+    <header>
+      <div class="callsign">
+        <h1>SKY VIEW</h1>
+        <span class="callsign-tag">Overhead Right Now</span>
+      </div>
+      <div class="uptime-clock">
+        <div class="status-value tabular-num" id="sky-clock">—:—:—</div>
+        <div class="label">Snapshot Taken</div>
+      </div>
+    </header>
+
+    <div class="alarm-strip" id="sky-strip">
+      <span class="alarm-dot"></span>
+      <span class="alarm-message" id="sky-headline">AWAITING ELEMENTS…</span>
+      <span class="alarm-subtext" id="sky-subtext">standing by</span>
+    </div>
+
+    <div class="scope-frame">
+      <canvas id="sky-scope"></canvas>
+      <div class="scope-legend">
+        <span class="legend-item"><span class="legend-swatch is-in-cone"></span>In cone</span>
+        <span class="legend-item"><span class="legend-swatch is-above"></span>Above horizon</span>
+      </div>
+    </div>
+
+    <div class="status-strip">
+      <div class="cell">
+        <div class="label">In Cone</div>
+        <div class="status-value tabular-num" id="count-in-cone">—</div>
+      </div>
+      <div class="cell">
+        <div class="label">Above Horizon</div>
+        <div class="status-value tabular-num" id="count-above">—</div>
+      </div>
+      <div class="cell">
+        <div class="label">Cone</div>
+        <div class="status-value" id="cone-note">—</div>
+      </div>
+      <div class="cell">
+        <div class="label">Elements</div>
+        <div class="status-value" id="element-age">—</div>
+      </div>
+    </div>
+
+    <footer>
+      <div class="footer-left">
+        <span>HOUSTON, WE HAVE a PACKET LOSS</span>
+        <a href="/" class="raw-log-link">Dashboard</a>
+      </div>
+      <span class="connection-status" id="connection-status"><span class="connection-dot"></span><span id="connection-text">Connecting…</span></span>
+    </footer>
+
+  </div>
+</body>
+</html>

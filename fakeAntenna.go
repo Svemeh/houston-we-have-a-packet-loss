@@ -1,7 +1,7 @@
 package main
 
 // this file is purely for testing the program when no starlink is available to test on.
-// 
+//
 // It deliberately misbehaves on a schedule: every minute or two it drops into a
 // degraded, obstructed, no-signal or unreachable stretch, so every branch of the
 // alarm strip and every colour on the charts actually gets hit. Values run
