@@ -111,6 +111,7 @@ func main() {
 	defer stopSignalWatch()
 
 	go pollLoop(ctx, collector, hub, logFile, tracker)
+	go pruneLoop(ctx, logFile, pingLogFile)
 	go pruneLoop(ctx, logFile, pingLogFile, hopsLogFile, outageLogFile)
 	go tracker.Run(ctx)
 	if !*noPing {
