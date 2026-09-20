@@ -20,6 +20,9 @@ func main() {
 	pingTarget := flag.String("ping-target", DefaultPingTarget, "host this machine pings")
 	pingLogPath := flag.String("ping-log", DefaultPingLogPath, "ping log file (JSONL)")
 	noPing := flag.Bool("no-ping", false, "don't ping from this machine")
+	hopsLogPath := flag.String("hops-log", DefaultHopsLogPath, "per-hop ping log file (JSONL)")
+	noHops := flag.Bool("no-hops", false, "don't ping the hops along the path")
+	outageLogPath := flag.String("outage-log", DefaultOutageLogPath, "dish outage log file (JSONL)")
 	flag.Parse()
 
 	collector, err := newCollector(*useFake, *dishAddress)
@@ -61,6 +64,20 @@ func main() {
 	}
 	defer pingLogFile.Close()
 
+	hopsLogFile, err := OpenLogFile[HopSample](*hopsLogPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ opening hops log file %q: %v\n", *hopsLogPath, err)
+		os.Exit(1)
+	}
+	defer hopsLogFile.Close()
+
+	outageLogFile, err := OpenLogFile[DishOutage](*outageLogPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ opening outage log file %q: %v\n", *outageLogPath, err)
+		os.Exit(1)
+	}
+	defer outageLogFile.Close()
+
 	hubCapacity := int(BackfillWindow / DefaultPollInterval)
 	hub := NewHub[TelemetrySample](hubCapacity)
 
@@ -95,9 +112,18 @@ func main() {
 
 	go pollLoop(ctx, collector, hub, logFile, tracker)
 	go pruneLoop(ctx, logFile, pingLogFile)
+	go pruneLoop(ctx, logFile, pingLogFile, hopsLogFile, outageLogFile)
 	go tracker.Run(ctx)
 	if !*noPing {
 		go NewPinger(*pingTarget, pingHub, pingLogFile).Run(ctx)
+	}
+	if !*noHops {
+		go NewHopPinger(HopTargets, hopsLogFile).Run(ctx)
+	}
+	if outageSource, ok := collector.(OutageSource); ok {
+		go outageLoop(ctx, outageSource, outageLogFile, *outageLogPath)
+	} else {
+		log.Print("dish outages: not available from this collector, not polling")
 	}
 
 	if err := serveDashboard(ctx, *webListenAddress, hub, pingHub, tracker, *logPath, *pingLogPath); err != nil {

@@ -10,10 +10,16 @@
 - **[hub.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/hub.go)** — Generic `Hub[T]` that fans samples out to connected browsers and keeps a rolling backfill window.
 - **[ping.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/ping.go)** — Pings `1.1.1.1` from this machine once a second, independent of the dish. Logs to `machineToInternet.jsonl`, serves `/pingevents`, `/pinglog` and `/pinghistory` (buckets of max RTT plus sent/lost counts).
 - **[sky.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/sky.go)** — Satellite tracking. Loads the observer position from the environment/`.env`, fetches and caches Starlink TLEs from Celestrak, prefilters elements by inclination, propagates them with SGP4 on a tick, and fans snapshots of everything above the horizon out to connected browsers.
+- **[hops.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/hops.go)** — Pings every hop in `HopTargets` (router, dish, PoP gateway, backbone, Cloudflare, `1.1.1.1`, `8.8.8.8`) in parallel once a second. Logs one line per round to `hops.jsonl`. Disable with `-no-hops`.
+- **[outages.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/outages.go)** — Polls the dish's `get_history` every 60s, reads its outage list (start, duration, cause) and appends new ones to `dishOutages.jsonl`, deduplicated by start time.
 
 #### Testing 
 
 - **[fakeAntenna.go](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/fakeAntenna.go)** — Stand-in collector for `-fake`. Generates synthetic telemetry that cycles through degraded, obstructed, no-signal and unreachable stretches so every UI state gets exercised without a dish.
+
+### Analysis
+
+- **[analyze_hops.py](https://github.com/Svemeh/houston-we-have-a-packet-loss/blob/main/analyze_hops.py)** — Reads `hops.jsonl`, pins each loss burst to the hop where traffic died (LAN / dish / satellite link / Starlink backbone / Cloudflare), totals loss per hop and matches bursts against `dishOutages.jsonl`. Run from the project root: `python3 analyze_hops.py --since 24h`.
 
 ### Frontend - HTML CSS JavaScript 
 

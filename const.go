@@ -88,7 +88,30 @@ const (
 
 	TLECachePath       = DataDir + "/starlink.tle"
 	CelestrakUserAgent = "houston-packet-loss/0.1"
+
+	// Hops: one echo per second to every point along the path (HopTargets), all
+	// in parallel, so a loss burst can be pinned to the first hop that went quiet.
+	// ~350 bytes per line, 3600 per hour = ~1.2MB/hour, same retention as the dish log.
+	DefaultHopsLogPath = DataDir + "/hops.jsonl"
+
+	// Dish outages: the dish's own outage list from get_history, deduplicated.
+	// The dish keeps roughly the last 15 minutes, so polling well inside that loses nothing.
+	DefaultOutageLogPath = DataDir + "/dishOutages.jsonl"
+	OutagePollInterval   = 60 * time.Second
 )
+
+// HopTargets are pinged every PingInterval by the hop pinger, in path order
+// from this machine outwards. 8.8.8.8 sits off the Cloudflare path on purpose:
+// if it drops together with 1.1.1.1 the problem is upstream of both.
+var HopTargets = []string{
+	"192.168.2.1",   // LAN router
+	"192.168.100.1", // dish
+	"100.64.0.1",    // Starlink PoP gateway, first hop across the satellite link
+	"206.224.70.83", // Starlink backbone
+	"162.158.84.78", // Cloudflare edge
+	"1.1.1.1",       // Cloudflare anycast, same target as machineToInternet.jsonl
+	"8.8.8.8",       // Google, independent control path
+}
 
 // TelemetrySample is one poll of the dish: the values it reported, or the
 // error that stopped us from reading them.
@@ -96,20 +119,20 @@ const (
 // The JSON tags are the on-disk log format (dishToPop.jsonl) and
 // the wire format the dashboard reads.
 type TelemetrySample struct {
-	Timestamp           time.Time `json:"timestamp"`
-	LinkState           string    `json:"link_state"`
-	LatencyMs           float64   `json:"latency_ms"`
-	DownloadMbps        float64   `json:"download_mbps"`
-	UploadMbps          float64   `json:"upload_mbps"`
-	DropRateFraction    float64   `json:"drop_rate_fraction"` // fraction in [0,1]
-	Obstructed          bool      `json:"obstructed"`
-	ObstructionFraction float64   `json:"obstruction_fraction"`
-	BoresightAzimuthDeg   float64 `json:"boresight_az_deg"`
-	BoresightElevationDeg float64 `json:"boresight_el_deg"`
-	BoresightValid        bool    `json:"boresight_valid"`
-	UptimeSeconds       uint64    `json:"uptime_seconds"`
-	HardwareVersion     string    `json:"hardware_version"`
-	SoftwareVersion     string    `json:"software_version"`
+	Timestamp             time.Time `json:"timestamp"`
+	LinkState             string    `json:"link_state"`
+	LatencyMs             float64   `json:"latency_ms"`
+	DownloadMbps          float64   `json:"download_mbps"`
+	UploadMbps            float64   `json:"upload_mbps"`
+	DropRateFraction      float64   `json:"drop_rate_fraction"` // fraction in [0,1]
+	Obstructed            bool      `json:"obstructed"`
+	ObstructionFraction   float64   `json:"obstruction_fraction"`
+	BoresightAzimuthDeg   float64   `json:"boresight_az_deg"`
+	BoresightElevationDeg float64   `json:"boresight_el_deg"`
+	BoresightValid        bool      `json:"boresight_valid"`
+	UptimeSeconds         uint64    `json:"uptime_seconds"`
+	HardwareVersion       string    `json:"hardware_version"`
+	SoftwareVersion       string    `json:"software_version"`
 	// PollError is set when a poll failed, and empty otherwise.
 	PollError string `json:"poll_error,omitempty"`
 }
