@@ -69,7 +69,6 @@
   const viewWindow = {
     selectedRange: RANGES.find(range => range.id === DEFAULT_RANGE_ID),
     pinnedStartMs: null, // only set for the "all" range
-    gapThresholdMs: MIN_GAP_THRESHOLD_MS,
   };
 
   function viewWindowStartMs(nowMs) {
@@ -136,6 +135,9 @@
     let hoveredIndex = -1;
     let widthPx = 0;
     let heightPx = 0;
+    // Each scope tracks its own threshold: dish and ping history arrive from
+    // separate requests and may be bucketed differently.
+    let gapThresholdMs = MIN_GAP_THRESHOLD_MS;
 
     const formatValue = config.formatValue || (value => `${Math.round(value)} ${config.unit}`);
 
@@ -201,9 +203,12 @@
         visiblePointCount++;
         if (point.value > peakValue) peakValue = point.value;
       }
-      const axisTop = Math.max(
-        config.minAxisTop,
-        Math.ceil((Math.max(peakValue, 0) * AXIS_HEADROOM) / config.axisRounding) * config.axisRounding,
+      const axisTop = Math.min(
+        config.maxAxisTop || Infinity,
+        Math.max(
+          config.minAxisTop,
+          Math.ceil((Math.max(peakValue, 0) * AXIS_HEADROOM) / config.axisRounding) * config.axisRounding,
+        ),
       );
       rangeLabelEl.textContent = visiblePointCount
         ? `0–${axisTop} ${config.unit} · ${viewWindow.selectedRange.label}`
@@ -231,7 +236,7 @@
       if (visiblePointCount < 1) return;
 
       // Split visible samples into contiguous segments, breaking anywhere
-      // consecutive readings are more than viewWindow.gapThresholdMs apart. Each
+      // consecutive readings are more than gapThresholdMs apart. Each
       // segment gets its own fill + stroke so offline periods render as blank
       // space. The threshold tracks the server's bucket width — at 24h the
       // points are ~40s apart by design, and a fixed 3s gap would shred the trace.
@@ -240,7 +245,7 @@
       for (const point of points) {
         if (point.time < windowStartMs) continue;
         const previousPoint = currentSegment[currentSegment.length - 1];
-        if (previousPoint && point.time - previousPoint.time > viewWindow.gapThresholdMs) {
+        if (previousPoint && point.time - previousPoint.time > gapThresholdMs) {
           segments.push(currentSegment);
           currentSegment = [];
         }
@@ -321,6 +326,11 @@
       }
       draw();
       if (hoveredIndex >= 0) updateHoverBadge();
+    }
+    // Trace-breaking threshold follows the server's bucket width, with slack
+    // for jitter and the occasional dropped sample.
+    function setBucketWidth(bucketWidthMs) {
+      gapThresholdMs = Math.max(MIN_GAP_THRESHOLD_MS, (bucketWidthMs || ASSUMED_BUCKET_MS) * GAP_THRESHOLD_MULTIPLIER);
     }
     function clearPoints() {
       points = [];
@@ -403,7 +413,7 @@
       draw();
     });
 
-    return { resizeCanvas, draw, addPoint, addPointSilently, clearPoints };
+    return { resizeCanvas, draw, addPoint, addPointSilently, clearPoints, setBucketWidth };
   }
 
   const formatMs = value => `${Math.round(value)} ms`;
@@ -447,7 +457,29 @@
     colorVar: "--chart-upload",
     formatValue: formatMbps,
   });
-  const scopes = [latencyScope, packetLossScope, downloadScope, uploadScope];
+  const machineToInternetPingScope = createScope({
+    canvasId: "chart-machine-to-internet-ping",
+    rangeLabelId: "chart-range-machine-to-internet-ping",
+    unit: "ms",
+    minAxisTop: 20,
+    axisRounding: 10,
+    colorVar: "--chart-machine-to-internet-ping",
+    formatValue: formatMs,
+  });
+  const machineToInternetLossScope = createScope({
+    canvasId: "chart-machine-to-internet-loss",
+    rangeLabelId: "chart-range-machine-to-internet-loss",
+    unit: "%",
+    minAxisTop: 5,
+    maxAxisTop: 100, // a lost ping is a 100% bucket; headroom above that is meaningless
+    axisRounding: 5,
+    minGridStep: 1,
+    colorVar: "--chart-machine-to-internet-loss",
+    formatValue: formatPercent,
+  });
+  const dishScopes = [latencyScope, packetLossScope, downloadScope, uploadScope];
+  const machineToInternetScopes = [machineToInternetPingScope, machineToInternetLossScope];
+  const scopes = [...dishScopes, ...machineToInternetScopes];
 
   // ---- Applying samples --------------------------------------------------
   // updateReadouts sets the current-state UI (alarm strip, tiles, uptime clock).
@@ -519,6 +551,55 @@
     chartSample(sample, false);
   }
 
+  // ---- Applying pings ----------------------------------------------------
+  // Live pings arrive as one echo ({rtt_ms, lost: bool}); history arrives as
+  // buckets ({rtt_ms, sent, lost: count}). Charting works on buckets, so a live
+  // ping is just a bucket of one.
+  const MACHINE_TO_INTERNET_LOSS_WINDOW_MS = 60 * 1000; // readout loss % covers this much
+  let recentPings = []; // {timeMs, lost} inside MACHINE_TO_INTERNET_LOSS_WINDOW_MS
+
+  function toPingBucket(ping) {
+    if (typeof ping.sent === "number") return ping;
+    return { timestamp: ping.timestamp, rtt_ms: ping.rtt_ms || 0, sent: 1, lost: ping.lost ? 1 : 0 };
+  }
+
+  function severityClass(value, hot, warm) {
+    return value > hot ? " is-critical" : value > warm ? " is-caution" : "";
+  }
+
+  function updatePingReadouts(ping) {
+    const timeMs = new Date(ping.timestamp).getTime();
+    recentPings.push({ timeMs, lost: Boolean(ping.lost) });
+    recentPings = recentPings.filter(recent => recent.timeMs > timeMs - MACHINE_TO_INTERNET_LOSS_WINDOW_MS);
+
+    const lostCount = recentPings.filter(recent => recent.lost).length;
+    const lossPercent = (lostCount / recentPings.length) * 100;
+    byId("value-machine-to-internet-loss").textContent = formatNumber(lossPercent, 1);
+    byId("cell-machine-to-internet-loss").className = "cell" + severityClass(lossPercent, DROP_HOT_PERCENT, DROP_WARM_PERCENT);
+
+    byId("value-machine-to-internet-ping").textContent = ping.lost ? "—" : formatNumber(ping.rtt_ms, 0);
+    byId("cell-machine-to-internet-ping").className =
+      "cell" + (ping.lost ? " is-critical" : severityClass(ping.rtt_ms, LATENCY_HOT_MS, LATENCY_WARM_MS));
+    if (ping.target) byId("machine-to-internet-ping-target").textContent = ping.target;
+  }
+
+  function clearPingReadouts() {
+    recentPings = [];
+    for (const id of ["value-machine-to-internet-ping", "value-machine-to-internet-loss"]) byId(id).textContent = "—";
+    for (const id of ["cell-machine-to-internet-ping", "cell-machine-to-internet-loss"]) byId(id).className = "cell";
+  }
+
+  function chartPing(ping, silent) {
+    const bucket = toPingBucket(ping);
+    if (!bucket.sent) return;
+    const timestamp = new Date(bucket.timestamp);
+    const addMethod = silent ? "addPointSilently" : "addPoint";
+    // A fully lost bucket has no RTT; leave the ping trace alone and let the
+    // loss chart carry it.
+    if (bucket.lost < bucket.sent && bucket.rtt_ms > 0) machineToInternetPingScope[addMethod](timestamp, bucket.rtt_ms);
+    machineToInternetLossScope[addMethod](timestamp, (bucket.lost / bucket.sent) * 100);
+  }
+
   // ---- Range selector ----------------------------------------------------
   const rangeBarEl = byId("range-bar");
 
@@ -546,6 +627,14 @@
   // reply must not overwrite the fast one.
   let latestRangeLoadToken = 0;
 
+  async function fetchHistory(route, rangeId) {
+    const response = await fetch(`${route}?range=${encodeURIComponent(rangeId)}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    const payload = await response.json();
+    if (!Array.isArray(payload.samples)) payload.samples = [];
+    return payload;
+  }
+
   async function selectRange(rangeId) {
     const selectedRange = RANGES.find(range => range.id === rangeId);
     if (!selectedRange) return;
@@ -557,30 +646,42 @@
     rangeBarEl.classList.add("is-loading");
 
     try {
-      const response = await fetch(`/history?range=${encodeURIComponent(selectedRange.id)}`, {
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      const payload = await response.json();
+      // Dish and ping history load independently: one failing shouldn't
+      // blank the other's charts.
+      const [dishResult, pingResult] = await Promise.allSettled([
+        fetchHistory("/history", selectedRange.id),
+        fetchHistory("/pinghistory", selectedRange.id),
+      ]);
       if (loadToken !== latestRangeLoadToken) return; // superseded by a later click
 
-      const samples = Array.isArray(payload.samples) ? payload.samples : [];
-
-      // Trace-breaking threshold follows the server's bucket width, with
-      // slack for jitter and the occasional dropped poll.
-      viewWindow.gapThresholdMs = Math.max(MIN_GAP_THRESHOLD_MS, (payload.bucket_width_ms || ASSUMED_BUCKET_MS) * GAP_THRESHOLD_MULTIPLIER);
+      for (const [source, result] of [["dish", dishResult], ["ping", pingResult]]) {
+        if (result.status === "rejected") console.error("could not load", source, "range", selectedRange.id, result.reason);
+      }
+      const dishPayload = dishResult.status === "fulfilled" ? dishResult.value : null;
+      const pingPayload = pingResult.status === "fulfilled" ? pingResult.value : null;
 
       if (selectedRange.spanMs === null) {
-        viewWindow.pinnedStartMs = samples.length ? new Date(samples[0].timestamp).getTime() : Date.now() - EMPTY_ALL_RANGE_SPAN_MS;
+        const oldestTimes = [dishPayload, pingPayload]
+          .filter(payload => payload && payload.samples.length)
+          .map(payload => new Date(payload.samples[0].timestamp).getTime());
+        viewWindow.pinnedStartMs = oldestTimes.length ? Math.min(...oldestTimes) : Date.now() - EMPTY_ALL_RANGE_SPAN_MS;
       }
 
-      scopes.forEach(scope => scope.clearPoints());
-      for (const sample of samples) chartSample(sample, true);
-      scopes.forEach(scope => scope.draw());
-    } catch (loadError) {
-      if (loadToken === latestRangeLoadToken) {
-        console.error("could not load range", selectedRange.id, loadError);
+      if (dishPayload) {
+        dishScopes.forEach(scope => {
+          scope.clearPoints();
+          scope.setBucketWidth(dishPayload.bucket_width_ms);
+        });
+        for (const sample of dishPayload.samples) chartSample(sample, true);
       }
+      if (pingPayload) {
+        machineToInternetScopes.forEach(scope => {
+          scope.clearPoints();
+          scope.setBucketWidth(pingPayload.bucket_width_ms);
+        });
+        for (const bucket of pingPayload.samples) chartPing(bucket, true);
+      }
+      scopes.forEach(scope => scope.draw());
     } finally {
       if (loadToken === latestRangeLoadToken) rangeBarEl.classList.remove("is-loading");
     }
@@ -615,6 +716,33 @@
     };
   }
 
+  function connectToPingStream() {
+    const eventSource = new EventSource("/pingevents");
+    // Like the dish stream: history owns the charts, backfill only primes the
+    // readouts — here with the last minute, so loss % is right immediately.
+    eventSource.addEventListener("backfill", event => {
+      try {
+        const backfillPings = JSON.parse(event.data);
+        if (!Array.isArray(backfillPings) || !backfillPings.length) return;
+        const newestMs = new Date(backfillPings[backfillPings.length - 1].timestamp).getTime();
+        clearPingReadouts();
+        for (const ping of backfillPings) {
+          if (new Date(ping.timestamp).getTime() > newestMs - MACHINE_TO_INTERNET_LOSS_WINDOW_MS) updatePingReadouts(ping);
+        }
+      } catch {}
+    });
+    eventSource.onmessage = event => {
+      try {
+        const ping = JSON.parse(event.data);
+        updatePingReadouts(ping);
+        chartPing(ping, false);
+      } catch {}
+    };
+    // Losing the dashboard server says nothing about the internet, so show no
+    // reading rather than a stale one.
+    eventSource.onerror = () => clearPingReadouts();
+  }
+
   // Repaint once per second even without new data, so the strip keeps
   // advancing to keep "now" at the right edge — otherwise a disconnected
   // client would show a frozen chart with the last sample stuck on the right.
@@ -637,5 +765,6 @@
   buildRangeBar();
   scopes.forEach(scope => scope.resizeCanvas());
   connectToTelemetryStream();
+  connectToPingStream();
   selectRange(DEFAULT_RANGE_ID);
 })();

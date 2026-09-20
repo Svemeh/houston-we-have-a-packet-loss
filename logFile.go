@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -28,23 +29,33 @@ const (
 	minTailBytes         = 1 << 20
 )
 
-type LogFile struct {
+// Timestamped is anything LogFile can store: it needs a time so pruning and
+// range reads know which records to keep.
+type Timestamped interface {
+	SampleTime() time.Time
+}
+
+// LogFile is an append-only JSON Lines file of T, one record per line.
+type LogFile[T Timestamped] struct {
 	path           string
 	mutex          sync.Mutex // serializes Append; concurrent HTTP reads are OS-safe
 	file           *os.File
 	bufferedWriter *bufio.Writer
 }
 
-func OpenLogFile(path string) (*LogFile, error) {
+func OpenLogFile[T Timestamped](path string) (*LogFile[T], error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	return &LogFile{path: path, file: file, bufferedWriter: bufio.NewWriter(file)}, nil
+	return &LogFile[T]{path: path, file: file, bufferedWriter: bufio.NewWriter(file)}, nil
 }
 
 // Append writes one sample to the file as a single JSON line and flushes to disk.
-func (logFile *LogFile) Append(sample TelemetrySample) error {
+func (logFile *LogFile[T]) Append(sample T) error {
 	jsonLine, err := json.Marshal(sample)
 	if err != nil {
 		return err
@@ -60,7 +71,7 @@ func (logFile *LogFile) Append(sample TelemetrySample) error {
 	return logFile.bufferedWriter.Flush()
 }
 
-func (logFile *LogFile) Close() error {
+func (logFile *LogFile[T]) Close() error {
 	logFile.mutex.Lock()
 	defer logFile.mutex.Unlock()
 	if err := logFile.bufferedWriter.Flush(); err != nil {
@@ -71,7 +82,7 @@ func (logFile *LogFile) Close() error {
 
 // Prune rewrites the log file, keeping only samples at or after cutoff.
 // Uses write-to-temp + atomic rename so a crash mid-prune never loses data.
-func (logFile *LogFile) Prune(cutoff time.Time) error {
+func (logFile *LogFile[T]) Prune(cutoff time.Time) error {
 	logFile.mutex.Lock()
 	defer logFile.mutex.Unlock()
 
@@ -85,7 +96,7 @@ func (logFile *LogFile) Prune(cutoff time.Time) error {
 	}
 
 	tempPath := logFile.path + ".tmp"
-	kept, total, err := rewriteKeepingSamplesSince(logFile.path, tempPath, cutoff)
+	kept, total, err := rewriteKeepingSamplesSince[T](logFile.path, tempPath, cutoff)
 	if err != nil {
 		_ = os.Remove(tempPath) // clean up on failure
 		// Best-effort: reopen the original so appends can resume even after a failed prune.
@@ -104,14 +115,14 @@ func (logFile *LogFile) Prune(cutoff time.Time) error {
 	}
 
 	if dropped := total - kept; dropped > 0 {
-		log.Printf("pruned %d samples older than %s (kept %d)", dropped, cutoff.Format(time.RFC3339), kept)
+		log.Printf("pruned %d samples from %s older than %s (kept %d)", dropped, logFile.path, cutoff.Format(time.RFC3339), kept)
 	}
 	return logFile.reopenAppend()
 }
 
 // reopenAppend restores logFile.file and logFile.bufferedWriter after a prune.
 // Assumes the caller already holds the mutex.
-func (logFile *LogFile) reopenAppend() error {
+func (logFile *LogFile[T]) reopenAppend() error {
 	file, err := os.OpenFile(logFile.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
@@ -124,7 +135,7 @@ func (logFile *LogFile) reopenAppend() error {
 // rewriteKeepingSamplesSince reads sourcePath line-by-line and writes the
 // samples at or after cutoff to destPath. Returns (kept, total, err).
 // Corrupted lines are skipped (matching the read-side behavior elsewhere).
-func rewriteKeepingSamplesSince(sourcePath, destPath string, cutoff time.Time) (kept, total int, err error) {
+func rewriteKeepingSamplesSince[T Timestamped](sourcePath, destPath string, cutoff time.Time) (kept, total int, err error) {
 	source, err := os.Open(sourcePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -145,11 +156,11 @@ func rewriteKeepingSamplesSince(sourcePath, destPath string, cutoff time.Time) (
 
 	for scanner.Scan() {
 		total++
-		var sample TelemetrySample
+		var sample T
 		if err := json.Unmarshal(scanner.Bytes(), &sample); err != nil {
 			continue // skip corrupt lines
 		}
-		if sample.Timestamp.Before(cutoff) {
+		if sample.SampleTime().Before(cutoff) {
 			continue
 		}
 		if _, err := writer.Write(scanner.Bytes()); err != nil {
@@ -178,16 +189,16 @@ func rewriteKeepingSamplesSince(sourcePath, destPath string, cutoff time.Time) (
 
 // LoadSamplesSince returns every sample at or after oldestWanted, oldest first.
 // A zero oldestWanted reads the whole file.
-func LoadSamplesSince(logPath string, oldestWanted time.Time) ([]TelemetrySample, error) {
-	samples, didSeek, err := scanLogTail(logPath, oldestWanted, estimateTailBytes(oldestWanted))
+func LoadSamplesSince[T Timestamped](logPath string, oldestWanted time.Time) ([]T, error) {
+	samples, didSeek, err := scanLogTail[T](logPath, oldestWanted, estimateTailBytes(oldestWanted))
 	if err != nil {
 		return nil, err
 	}
 	// We guessed how far back to seek. If we started mid-file and the oldest
 	// record we found is still newer than the cutoff, records we wanted sit
 	// before our starting offset — the guess was too small, so re-read fully.
-	if didSeek && len(samples) > 0 && samples[0].Timestamp.After(oldestWanted) {
-		samples, _, err = scanLogTail(logPath, oldestWanted, readWholeFile)
+	if didSeek && len(samples) > 0 && samples[0].SampleTime().After(oldestWanted) {
+		samples, _, err = scanLogTail[T](logPath, oldestWanted, readWholeFile)
 		if err != nil {
 			return nil, err
 		}
@@ -216,7 +227,7 @@ func estimateTailBytes(oldestWanted time.Time) int64 {
 // scanLogTail reads the last maxTailBytes of the log (or all of it when
 // maxTailBytes is readWholeFile), returning in-range samples and whether it had
 // to seek to get there.
-func scanLogTail(logPath string, oldestWanted time.Time, maxTailBytes int64) (samples []TelemetrySample, didSeek bool, err error) {
+func scanLogTail[T Timestamped](logPath string, oldestWanted time.Time, maxTailBytes int64) (samples []T, didSeek bool, err error) {
 	file, err := os.Open(logPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -249,13 +260,13 @@ func scanLogTail(logPath string, oldestWanted time.Time, maxTailBytes int64) (sa
 			skipPartialFirstLine = false
 			continue
 		}
-		var sample TelemetrySample
+		var sample T
 		// Corrupted lines (a partial write from a crash, or the tail of a
 		// record being appended right now) are skipped silently.
 		if err := json.Unmarshal(scanner.Bytes(), &sample); err != nil {
 			continue
 		}
-		if oldestWanted.IsZero() || !sample.Timestamp.Before(oldestWanted) {
+		if oldestWanted.IsZero() || !sample.SampleTime().Before(oldestWanted) {
 			samples = append(samples, sample)
 		}
 	}

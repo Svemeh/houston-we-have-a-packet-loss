@@ -9,6 +9,8 @@
   --chart-packet-loss: #e5455c;
   --chart-download: #00c9c0;
   --chart-upload: #b75cf0;
+  --chart-machine-to-internet-ping: #f5873d;
+  --chart-machine-to-internet-loss: #ff7aa2;
 
   --amber: #f5b740;
   --amber-dim: #8a6d33;
@@ -222,6 +224,18 @@ header {
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
   margin-bottom: 10px;
+}
+
+/* Machine-to-internet row: two readouts measured from this machine, not the dish. */
+.readouts.is-machine-to-internet {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.label-note {
+  color: var(--label-dim);
+  letter-spacing: 0.08em;
+  font-weight: 400;
+  margin-left: 6px;
 }
 
 .cell {
@@ -485,6 +499,12 @@ footer {
   transition:
     color 0.1s,
     border-color 0.1s;
+}
+
+/* File names keep their real casing; the footer is otherwise uppercase. */
+.raw-log-link.is-filename {
+  text-transform: none;
+  letter-spacing: 0.04em;
 }
 
 .raw-log-link:hover {

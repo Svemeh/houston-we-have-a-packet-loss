@@ -1,8 +1,5 @@
-# custom file storing previous antenna readings
-houston.jsonl
-
-# stores previous Celestrak
-starlink.tle
+# stores all log files the app writes at runtime
+data/
 
 # enviorment variables im hoping to remove later
 .env
