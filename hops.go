@@ -9,7 +9,7 @@ import (
 
 // HopResult is one echo to one hop.
 type HopResult struct {
-	RTTMs float64 `json:"rtt_ms,omitempty"` // absent when lost
+	RTTMs float64 `json:"rtt_ms"`
 	Lost  bool    `json:"lost"`
 	Error string  `json:"error,omitempty"`
 }

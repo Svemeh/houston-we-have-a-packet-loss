@@ -89,35 +89,33 @@ const (
 	TLECachePath       = DataDir + "/starlink.tle"
 	CelestrakUserAgent = "houston-packet-loss/0.1"
 
-	// Hops: one echo per second to every point along the path (HopTargets), all
-	// in parallel, so a loss burst can be pinned to the first hop that went quiet.
-	// ~350 bytes per line, 3600 per hour = ~1.2MB/hour, same retention as the dish log.
 	DefaultHopsLogPath = DataDir + "/hops.jsonl"
 
-	// Dish outages: the dish's own outage list from get_history, deduplicated.
-	// The dish keeps roughly the last 15 minutes, so polling well inside that loses nothing.
+	// Hourly rollup: one line per hour summarising hops.jsonl
+	DefaultRollupLogPath = DataDir + "/hopsHourly.jsonl"
+	RollupInterval       = 10 * time.Minute
+
+	// HandoverSlotSeconds: Starlink switches satellites on a 15s boundary. The rollup
+	// buckets loss by position in the slot to separate handover loss from the rest.
+	HandoverSlotSeconds = 15
+
+	// Dish outages: the dish's own outage list from get_history.
 	DefaultOutageLogPath = DataDir + "/dishOutages.jsonl"
 	OutagePollInterval   = 60 * time.Second
 )
 
-// HopTargets are pinged every PingInterval by the hop pinger, in path order
-// from this machine outwards. 8.8.8.8 sits off the Cloudflare path on purpose:
-// if it drops together with 1.1.1.1 the problem is upstream of both.
+// HopTargets are pinged every PingInterval by the hop pinger.
 var HopTargets = []string{
 	"192.168.2.1",   // LAN router
 	"192.168.100.1", // dish
-	"100.64.0.1",    // Starlink PoP gateway, first hop across the satellite link
-	"206.224.70.83", // Starlink backbone
-	"162.158.84.78", // Cloudflare edge
 	"1.1.1.1",       // Cloudflare anycast, same target as machineToInternet.jsonl
 	"8.8.8.8",       // Google, independent control path
 }
 
+const HopEndTarget = DefaultPingTarget
+
 // TelemetrySample is one poll of the dish: the values it reported, or the
 // error that stopped us from reading them.
-//
-// The JSON tags are the on-disk log format (dishToPop.jsonl) and
-// the wire format the dashboard reads.
 type TelemetrySample struct {
 	Timestamp             time.Time `json:"timestamp"`
 	LinkState             string    `json:"link_state"`

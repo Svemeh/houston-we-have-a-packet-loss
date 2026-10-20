@@ -23,6 +23,7 @@ func main() {
 	hopsLogPath := flag.String("hops-log", DefaultHopsLogPath, "per-hop ping log file (JSONL)")
 	noHops := flag.Bool("no-hops", false, "don't ping the hops along the path")
 	outageLogPath := flag.String("outage-log", DefaultOutageLogPath, "dish outage log file (JSONL)")
+	rollupLogPath := flag.String("rollup-log", DefaultRollupLogPath, "hourly hop summary log file (JSONL)")
 	flag.Parse()
 
 	collector, err := newCollector(*useFake, *dishAddress)
@@ -78,6 +79,14 @@ func main() {
 	}
 	defer outageLogFile.Close()
 
+	// Not pruned: it is the long-term record, and the raw samples behind it are.
+	rollupLogFile, err := OpenLogFile[HopRollup](*rollupLogPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ opening rollup log file %q: %v\n", *rollupLogPath, err)
+		os.Exit(1)
+	}
+	defer rollupLogFile.Close()
+
 	hubCapacity := int(BackfillWindow / DefaultPollInterval)
 	hub := NewHub[TelemetrySample](hubCapacity)
 
@@ -111,7 +120,6 @@ func main() {
 	defer stopSignalWatch()
 
 	go pollLoop(ctx, collector, hub, logFile, tracker)
-	go pruneLoop(ctx, logFile, pingLogFile)
 	go pruneLoop(ctx, logFile, pingLogFile, hopsLogFile, outageLogFile)
 	go tracker.Run(ctx)
 	if !*noPing {
@@ -119,6 +127,7 @@ func main() {
 	}
 	if !*noHops {
 		go NewHopPinger(HopTargets, hopsLogFile).Run(ctx)
+		go rollupLoop(ctx, *hopsLogPath, *logPath, rollupLogFile, *rollupLogPath)
 	}
 	if outageSource, ok := collector.(OutageSource); ok {
 		go outageLoop(ctx, outageSource, outageLogFile, *outageLogPath)
