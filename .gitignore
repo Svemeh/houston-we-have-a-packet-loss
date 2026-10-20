@@ -1,7 +1,7 @@
 # stores all log files the app writes at runtime
 data/
 
-# enviorment variables im hoping to remove later
+# local config (observer position)
 .env
 
 # === Go Artifacts ===

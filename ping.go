@@ -14,7 +14,7 @@ type PingSample struct {
 	Target    string    `json:"target"`
 	RTTMs     float64   `json:"rtt_ms,omitempty"` // absent when lost
 	Lost      bool      `json:"lost"`
-	Error string `json:"error,omitempty"`
+	Error     string    `json:"error,omitempty"`
 }
 
 func (sample PingSample) SampleTime() time.Time { return sample.Timestamp }
@@ -22,9 +22,9 @@ func (sample PingSample) SampleTime() time.Time { return sample.Timestamp }
 // Pinger sends one echo per PingInterval to a single target, publishing each
 // result to its hub and log.
 type Pinger struct {
-	target  string
-	hub     *Hub[PingSample]
-	logFile *LogFile[PingSample]
+	target     string
+	hub        *Hub[PingSample]
+	logFile    *LogFile[PingSample]
 	privileged bool
 }
 
