@@ -127,7 +127,7 @@ func main() {
 	}
 	if !*noHops {
 		go NewHopPinger(HopTargets, hopsLogFile).Run(ctx)
-		go rollupLoop(ctx, *hopsLogPath, rollupLogFile, *rollupLogPath)
+		go rollupLoop(ctx, *hopsLogPath, *logPath, rollupLogFile, *rollupLogPath)
 	}
 	if outageSource, ok := collector.(OutageSource); ok {
 		go outageLoop(ctx, outageSource, outageLogFile, *outageLogPath)

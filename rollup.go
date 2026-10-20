@@ -28,6 +28,11 @@ type HopRollup struct {
 	// satellite handover.
 	HandoverLoss []int `json:"handover_loss"`
 	HandoverSent []int `json:"handover_sent"`
+
+	// Same buckets, but counting seconds the dish itself reported any drop.
+	// The dish reports ~3s late, so these lag HandoverLoss by that much.
+	DishDropSlots   []int `json:"dish_drop_slots"`
+	DishSlotSamples []int `json:"dish_slot_samples"`
 }
 
 func (rollup HopRollup) SampleTime() time.Time { return rollup.HourStart }
@@ -50,7 +55,7 @@ type HopHourStats struct {
 // nothing: the samples are already on disk, and any hour missed while the app
 // was down is picked up on the next tick. Hours already summarised are skipped,
 // which is why it ticks faster than once an hour — a restart shouldn't wait.
-func rollupLoop(ctx context.Context, hopsLogPath string, rollupLogFile *LogFile[HopRollup], rollupLogPath string) {
+func rollupLoop(ctx context.Context, hopsLogPath, dishLogPath string, rollupLogFile *LogFile[HopRollup], rollupLogPath string) {
 	ticker := time.NewTicker(RollupInterval)
 	defer ticker.Stop()
 
@@ -85,8 +90,15 @@ func rollupLoop(ctx context.Context, hopsLogPath string, rollupLogFile *LogFile[
 			return
 		}
 
+		// The dish log is optional: without it the dish buckets stay zero.
+		dishSamples, err := LoadSamplesSince[TelemetrySample](dishLogPath, wanted[0])
+		if err != nil {
+			log.Printf("rollup: could not read %s: %v", dishLogPath, err)
+			dishSamples = nil
+		}
+
 		for _, hour := range wanted {
-			rollup := summariseHour(samples, hour)
+			rollup := summariseHour(samples, dishSamples, hour)
 			// An hour with no samples at all means the app wasn't running.
 			// Record nothing rather than a line claiming total loss.
 			if rollup.Samples == 0 {
@@ -113,13 +125,16 @@ func rollupLoop(ctx context.Context, hopsLogPath string, rollupLogFile *LogFile[
 }
 
 // summariseHour folds every sample inside one hour into a rollup.
-func summariseHour(samples []HopSample, hourStart time.Time) HopRollup {
+func summariseHour(samples []HopSample, dishSamples []TelemetrySample, hourStart time.Time) HopRollup {
 	hourEnd := hourStart.Add(time.Hour)
 	rollup := HopRollup{
 		HourStart:    hourStart,
 		Hops:         make(map[string]HopHourStats, len(HopTargets)),
 		HandoverLoss: make([]int, HandoverSlotSeconds),
 		HandoverSent: make([]int, HandoverSlotSeconds),
+
+		DishDropSlots:   make([]int, HandoverSlotSeconds),
+		DishSlotSamples: make([]int, HandoverSlotSeconds),
 	}
 
 	roundTrips := make(map[string][]float64)
@@ -159,6 +174,23 @@ func summariseHour(samples []HopSample, hourStart time.Time) HopRollup {
 				jitters[target] = append(jitters[target], math.Abs(result.RTTMs-previous))
 			}
 			previousRTT[target] = result.RTTMs
+		}
+	}
+
+	for _, dishSample := range dishSamples {
+		if dishSample.Timestamp.Before(hourStart) {
+			continue
+		}
+		if !dishSample.Timestamp.Before(hourEnd) {
+			break
+		}
+		if dishSample.PollError != "" {
+			continue
+		}
+		slot := dishSample.Timestamp.Second() % HandoverSlotSeconds
+		rollup.DishSlotSamples[slot]++
+		if dishSample.DropRateFraction > 0 {
+			rollup.DishDropSlots[slot]++
 		}
 	}
 
