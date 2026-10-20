@@ -76,9 +76,18 @@ Requires Go 1.25+ and a Starlink dish on the local network (or `-fake`).
 ```sh
 cp .env.example .env          # set HOUSTON_LAT / HOUSTON_LON for the sky view
 go run .                      # dashboard on http://localhost:2101
-go run . -fake                # synthetic dish, no hardware needed
+```
+
+Test without starlink:
+```sh
+go run . -fake                # synthetic dish, no starlink required
+```
+
+Quickly test reachability:
+```sh
 go run . -oneshot             # check dish + internet reachability and exit
 ```
+
 
 ICMP needs permission on Linux: `sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"`, or run with `CAP_NET_RAW`.
 
