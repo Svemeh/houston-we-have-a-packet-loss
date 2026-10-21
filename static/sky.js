@@ -144,26 +144,31 @@
     }
   };
 
-  // A cone around a tilted axis isn't a circle in this projection, so walk its
-  // rim in spherical coordinates and project each point individually.
+  // Returns points along the cone's rim as az/el, built as 3D unit vectors
+  // around the axis. Works for any aim, zenith included.
   const coneRimPoints = (axisAzimuthDeg, axisElevationDeg, halfAngleDeg, samples = 180) => {
-    const axisElevation = axisElevationDeg * TO_RADIANS;
+    const azimuth = axisAzimuthDeg * TO_RADIANS;
+    const elevation = axisElevationDeg * TO_RADIANS;
     const halfAngle = halfAngleDeg * TO_RADIANS;
-    const points = [];
 
+    const axis = [Math.cos(elevation) * Math.sin(azimuth), Math.cos(elevation) * Math.cos(azimuth), Math.sin(elevation)];
+    const across = [Math.cos(azimuth), -Math.sin(azimuth), 0];
+    const up = [
+      axis[1] * across[2] - axis[2] * across[1],
+      axis[2] * across[0] - axis[0] * across[2],
+      axis[0] * across[1] - axis[1] * across[0],
+    ];
+
+    const points = [];
     for (let step = 0; step <= samples; step++) {
       const bearing = (step / samples) * 2 * Math.PI;
-      const elevation = Math.asin(
-        Math.sin(axisElevation) * Math.cos(halfAngle) +
-        Math.cos(axisElevation) * Math.sin(halfAngle) * Math.cos(bearing)
-      );
-      const azimuth = axisAzimuthDeg * TO_RADIANS + Math.atan2(
-        Math.sin(bearing) * Math.sin(halfAngle) * Math.cos(axisElevation),
-        Math.cos(halfAngle) - Math.sin(axisElevation) * Math.sin(elevation)
+      const rim = [0, 1, 2].map((i) =>
+        Math.cos(halfAngle) * axis[i] +
+        Math.sin(halfAngle) * (Math.cos(bearing) * up[i] + Math.sin(bearing) * across[i])
       );
       points.push({
-        az: (((azimuth / TO_RADIANS) % 360) + 360) % 360,
-        el: elevation / TO_RADIANS,
+        az: ((Math.atan2(rim[0], rim[1]) / TO_RADIANS) + 360) % 360,
+        el: Math.asin(Math.max(-1, Math.min(1, rim[2]))) / TO_RADIANS,
       });
     }
     return points;
