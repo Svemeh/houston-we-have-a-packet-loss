@@ -96,6 +96,7 @@ const (
 
 	MaxRollupRange  = 365 * 24 * time.Hour
 	MaxRollupPoints = 2000
+
 	RouteIncidents = "/incidents"
 
 	IncidentBurstGapSeconds = 2   // answered seconds tolerated inside one burst
