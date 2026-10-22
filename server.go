@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,7 +21,21 @@ const shutdownGracePeriod = 3 * time.Second
 //go:embed static/*
 var embeddedStaticFS embed.FS
 
-func serveDashboard(ctx context.Context, listenAddress string, hub *Hub[TelemetrySample], pingHub *Hub[PingSample], tracker *SkyTracker, logPath, pingLogPath string) error {
+type dashboardSources struct {
+	telemetryHub *Hub[TelemetrySample]
+	pingHub      *Hub[PingSample]
+	hopsHub      *Hub[HopSample]
+	tracker      *SkyTracker
+
+	// Paths rather than sources, because the raw-log routes stream the file
+	// itself rather than parsing it.
+	telemetryLogPath string
+	pingLogPath      string
+	hopsLogPath      string
+	rollupLogPath    string
+}
+
+func serveDashboard(ctx context.Context, listenAddress string, sources dashboardSources) error {
 	staticRoot, err := fs.Sub(embeddedStaticFS, "static")
 	if err != nil {
 		return err
@@ -28,16 +43,29 @@ func serveDashboard(ctx context.Context, listenAddress string, hub *Hub[Telemetr
 
 	router := http.NewServeMux()
 	router.Handle(RouteIndex, http.FileServer(http.FS(staticRoot)))
-	router.HandleFunc(RouteEvents, newSampleStreamHandler(hub))
-	router.HandleFunc(RouteLog, newRawLogHandler(logPath))
-	router.HandleFunc(RouteHistory, newHistoryHandler(logPath, DownsampleWorstCase))
-	router.HandleFunc(RoutePingEvents, newSampleStreamHandler(pingHub))
-	router.HandleFunc(RoutePingLog, newRawLogHandler(pingLogPath))
-	router.HandleFunc(RoutePingHistory, newHistoryHandler(pingLogPath, DownsamplePing))
+
+	router.HandleFunc(RouteEvents, newSampleStreamHandler(sources.telemetryHub))
+	router.HandleFunc(RouteLog, newRawLogHandler(sources.telemetryLogPath))
+	router.HandleFunc(RouteHistory, newHistoryHandler(
+		NewLogFileSource[TelemetrySample](sources.telemetryLogPath), DownsampleWorstCase, MaxHistoryRange, MaxHistoryPoints))
+
+	router.HandleFunc(RoutePingEvents, newSampleStreamHandler(sources.pingHub))
+	router.HandleFunc(RoutePingLog, newRawLogHandler(sources.pingLogPath))
+	router.HandleFunc(RoutePingHistory, newHistoryHandler(
+		NewLogFileSource[PingSample](sources.pingLogPath), DownsamplePing, MaxHistoryRange, MaxHistoryPoints))
+
+	router.HandleFunc(RouteHopsEvents, newSampleStreamHandler(sources.hopsHub))
+	router.HandleFunc(RouteHopsLog, newRawLogHandler(sources.hopsLogPath))
+	router.HandleFunc(RouteHopsHistory, newHistoryHandler(
+		NewLogFileSource[HopSample](sources.hopsLogPath), DownsampleHops, MaxHistoryRange, MaxHistoryPoints))
+
+	router.HandleFunc(RouteRollup, newHistoryHandler(
+		NewLogFileSource[HopRollup](sources.rollupLogPath), newestRollups, MaxRollupRange, MaxRollupPoints))
+
 	router.HandleFunc(RouteSky, func(response http.ResponseWriter, request *http.Request) {
 		http.ServeFileFS(response, request, staticRoot, "sky.html")
 	})
-	router.HandleFunc(RouteSkyEvents, newSkyStreamHandler(tracker))
+	router.HandleFunc(RouteSkyEvents, newSkyStreamHandler(sources.tracker))
 
 	server := &http.Server{Addr: listenAddress, Handler: router}
 
@@ -140,25 +168,25 @@ type downsampler[S Timestamped, P any] func(samples []S, windowStart, windowEnd 
 
 // newHistoryHandler serves a log's history over a requested range, shaped by
 // that log's own downsampler.
-func newHistoryHandler[S Timestamped, P any](logPath string, downsample downsampler[S, P]) http.HandlerFunc {
+func newHistoryHandler[S Timestamped, P any](source SampleSource[S], downsample downsampler[S, P], maxRange time.Duration, maxPoints int) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		requestedRange := strings.TrimSpace(request.URL.Query().Get("range"))
 
 		// A zero oldestWanted means "read everything".
 		var oldestWanted time.Time
 		if requestedRange != "" && requestedRange != RangeAll {
-			requestedSpan, err := time.ParseDuration(requestedRange)
+			requestedSpan, err := parseRange(requestedRange)
 			if err != nil || requestedSpan <= 0 {
-				http.Error(response, "range must be a duration like 15m, or "+RangeAll, http.StatusBadRequest)
+				http.Error(response, "range must be a duration like 15m or 30d, or "+RangeAll, http.StatusBadRequest)
 				return
 			}
-			if requestedSpan > MaxHistoryRange {
-				requestedSpan = MaxHistoryRange
+			if requestedSpan > maxRange {
+				requestedSpan = maxRange
 			}
 			oldestWanted = time.Now().Add(-requestedSpan)
 		}
 
-		samples, err := LoadSamplesSince[S](logPath, oldestWanted)
+		samples, err := source.Samples(request.Context(), SampleQuery{Since: oldestWanted})
 		if err != nil {
 			http.Error(response, "history unavailable: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -174,7 +202,7 @@ func newHistoryHandler[S Timestamped, P any](logPath string, downsample downsamp
 			}
 		}
 
-		points, bucketWidth := downsample(samples, windowStart, now, MaxHistoryPoints)
+		points, bucketWidth := downsample(samples, windowStart, now, maxPoints)
 
 		response.Header().Set("Content-Type", "application/json")
 		response.Header().Set("Cache-Control", "no-store")
@@ -220,4 +248,22 @@ func newSkyStreamHandler(tracker *SkyTracker) http.HandlerFunc {
 			}
 		}
 	}
+}
+
+func parseRange(requestedRange string) (time.Duration, error) {
+	if days, isDays := strings.CutSuffix(requestedRange, "d"); isDays {
+		dayCount, err := strconv.ParseFloat(days, 64)
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(dayCount * float64(24*time.Hour)), nil
+	}
+	return time.ParseDuration(requestedRange)
+}
+
+func newestRollups(rollups []HopRollup, _, _ time.Time, maxPoints int) ([]HopRollup, time.Duration) {
+	if maxPoints > 0 && len(rollups) > maxPoints {
+		rollups = rollups[len(rollups)-maxPoints:]
+	}
+	return rollups, RollupInterval
 }

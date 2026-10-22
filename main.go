@@ -105,8 +105,15 @@ func main() {
 		log.Printf("loaded %d prior samples from %s", len(priorSamples), *logPath)
 	}
 
-	// The ping hub and routes exist even with -no-ping, so the dashboard just
-	// shows old or empty data instead of erroring.
+	hopsHub := NewHub[HopSample](int(BackfillWindow / PingInterval))
+	priorHops, err := LoadSamplesSince[HopSample](*hopsLogPath, time.Now().Add(-BackfillWindow))
+	if err != nil {
+		log.Printf("warning: could not load prior hop samples: %v", err)
+	} else if len(priorHops) > 0 {
+		hopsHub.SeedHistory(priorHops)
+		log.Printf("loaded %d prior hop samples from %s", len(priorHops), *hopsLogPath)
+	}
+
 	pingHub := NewHub[PingSample](int(BackfillWindow / PingInterval))
 	priorPings, err := LoadSamplesSince[PingSample](*pingLogPath, time.Now().Add(-BackfillWindow))
 	if err != nil {
@@ -126,7 +133,7 @@ func main() {
 		go NewPinger(*pingTarget, pingHub, pingLogFile).Run(ctx)
 	}
 	if !*noHops {
-		go NewHopPinger(HopTargets, hopsLogFile).Run(ctx)
+		go NewHopPinger(HopTargets, hopsHub, hopsLogFile).Run(ctx)
 		go rollupLoop(ctx, *hopsLogPath, *logPath, rollupLogFile, *rollupLogPath)
 	}
 	if outageSource, ok := collector.(OutageSource); ok {
@@ -135,15 +142,21 @@ func main() {
 		log.Print("dish outages: not available from this collector, not polling")
 	}
 
-	if err := serveDashboard(ctx, *webListenAddress, hub, pingHub, tracker, *logPath, *pingLogPath); err != nil {
+	if err := serveDashboard(ctx, *webListenAddress, dashboardSources{
+		telemetryHub:     hub,
+		pingHub:          pingHub,
+		hopsHub:          hopsHub,
+		tracker:          tracker,
+		telemetryLogPath: *logPath,
+		pingLogPath:      *pingLogPath,
+		hopsLogPath:      *hopsLogPath,
+		rollupLogPath:    *rollupLogPath,
+	}); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ server error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// pollLoop polls the dish on a fixed interval until ctx is cancelled, handing
-// each sample to the hub and the log file, and each boresight reading to the
-// sky tracker so the service cone follows where the dish is actually aimed.
 func pollLoop(ctx context.Context, collector TelemetryCollector, hub *Hub[TelemetrySample], logFile *LogFile[TelemetrySample], tracker *SkyTracker) {
 	ticker := time.NewTicker(DefaultPollInterval)
 	defer ticker.Stop()
@@ -192,8 +205,6 @@ type prunable interface {
 }
 
 // pruneLoop prunes each log file to defined size in consts.go "LogRetention"
-// time between each prune is defined in consts.go "LogPruneInterval"
-// This will also run once at startup.
 func pruneLoop(ctx context.Context, logFiles ...prunable) {
 	ticker := time.NewTicker(LogPruneInterval)
 	defer ticker.Stop()
