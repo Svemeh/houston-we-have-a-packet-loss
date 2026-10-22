@@ -21,6 +21,8 @@ const shutdownGracePeriod = 3 * time.Second
 //go:embed static/*
 var embeddedStaticFS embed.FS
 
+// dashboardSources is everything the HTTP layer serves: a live hub per stream,
+// and the log each history route reads back through.
 type dashboardSources struct {
 	telemetryHub *Hub[TelemetrySample]
 	pingHub      *Hub[PingSample]
@@ -33,6 +35,7 @@ type dashboardSources struct {
 	pingLogPath      string
 	hopsLogPath      string
 	rollupLogPath    string
+	outageLogPath    string
 }
 
 func serveDashboard(ctx context.Context, listenAddress string, sources dashboardSources) error {
@@ -61,6 +64,10 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 
 	router.HandleFunc(RouteRollup, newHistoryHandler(
 		NewLogFileSource[HopRollup](sources.rollupLogPath), newestRollups, MaxRollupRange, MaxRollupPoints))
+
+	router.HandleFunc(RouteIncidents, newIncidentHandler(
+		NewLogFileSource[HopSample](sources.hopsLogPath),
+		NewLogFileSource[DishOutage](sources.outageLogPath)))
 
 	router.HandleFunc(RouteSky, func(response http.ResponseWriter, request *http.Request) {
 		http.ServeFileFS(response, request, staticRoot, "sky.html")
@@ -250,6 +257,8 @@ func newSkyStreamHandler(tracker *SkyTracker) http.HandlerFunc {
 	}
 }
 
+// parseRange is time.ParseDuration plus a day suffix, which it has no unit for
+// and the rollup route needs: that log is kept for years, not hours.
 func parseRange(requestedRange string) (time.Duration, error) {
 	if days, isDays := strings.CutSuffix(requestedRange, "d"); isDays {
 		dayCount, err := strconv.ParseFloat(days, 64)
@@ -261,9 +270,87 @@ func parseRange(requestedRange string) (time.Duration, error) {
 	return time.ParseDuration(requestedRange)
 }
 
+// newestRollups is the rollup route's downsampler: hourly records are already
+// coarse, so there is nothing to collapse. It only caps the response, keeping
+// the newest rows, so a multi-year range can't return the whole file at once.
 func newestRollups(rollups []HopRollup, _, _ time.Time, maxPoints int) ([]HopRollup, time.Duration) {
 	if maxPoints > 0 && len(rollups) > maxPoints {
 		rollups = rollups[len(rollups)-maxPoints:]
 	}
 	return rollups, RollupInterval
+}
+
+// incidentResponse is what RouteIncidents returns.
+type incidentResponse struct {
+	RequestedRange string     `json:"requested_range"`
+	WindowStart    time.Time  `json:"window_start"`
+	Count          int        `json:"count"`
+	Incidents      []Incident `json:"incidents"`
+}
+
+// newIncidentHandler serves RouteIncidents: the notable moments in a window,
+// newest first. Incidents are derived here rather than stored, so the two logs
+// are read on every request and the thresholds are whatever const.go says now.
+//
+// An optional kind= filters to one of loss, latency or outage. Without it the
+// list leans heavily towards latency, which is the most common kind by far.
+func newIncidentHandler(hops SampleSource[HopSample], outages SampleSource[DishOutage]) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		requestedRange := strings.TrimSpace(request.URL.Query().Get("range"))
+		wantedKind := strings.TrimSpace(request.URL.Query().Get("kind"))
+
+		var oldestWanted time.Time
+		if requestedRange != "" && requestedRange != RangeAll {
+			requestedSpan, err := parseRange(requestedRange)
+			if err != nil || requestedSpan <= 0 {
+				http.Error(response, "range must be a duration like 15m or 30d, or "+RangeAll, http.StatusBadRequest)
+				return
+			}
+			if requestedSpan > MaxHistoryRange {
+				requestedSpan = MaxHistoryRange
+			}
+			oldestWanted = time.Now().Add(-requestedSpan)
+		}
+
+		query := SampleQuery{Since: oldestWanted}
+		hopSamples, err := hops.Samples(request.Context(), query)
+		if err != nil {
+			http.Error(response, "incidents unavailable: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// A missing outage log is normal — the fake collector never writes one —
+		// so its incidents are simply absent rather than an error.
+		dishOutages, err := outages.Samples(request.Context(), query)
+		if err != nil {
+			log.Printf("incidents: could not read dish outages: %v", err)
+		}
+
+		incidents := DetectIncidents(hopSamples, dishOutages, 0)
+		if wantedKind != "" {
+			kept := incidents[:0]
+			for _, incident := range incidents {
+				if incident.Kind == wantedKind {
+					kept = append(kept, incident)
+				}
+			}
+			incidents = kept
+		}
+		if len(incidents) > MaxIncidents {
+			incidents = incidents[:MaxIncidents]
+		}
+
+		windowStart := oldestWanted
+		if windowStart.IsZero() && len(hopSamples) > 0 {
+			windowStart = hopSamples[0].Timestamp
+		}
+
+		response.Header().Set("Content-Type", "application/json")
+		response.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(response).Encode(incidentResponse{
+			RequestedRange: requestedRange,
+			WindowStart:    windowStart,
+			Count:          len(incidents),
+			Incidents:      incidents,
+		})
+	}
 }

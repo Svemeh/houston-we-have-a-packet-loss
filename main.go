@@ -105,6 +105,8 @@ func main() {
 		log.Printf("loaded %d prior samples from %s", len(priorSamples), *logPath)
 	}
 
+	// The hop hub and routes exist even with -no-hops, so the dashboard just
+	// shows old or empty data instead of erroring. Same reasoning as the ping hub.
 	hopsHub := NewHub[HopSample](int(BackfillWindow / PingInterval))
 	priorHops, err := LoadSamplesSince[HopSample](*hopsLogPath, time.Now().Add(-BackfillWindow))
 	if err != nil {
@@ -114,6 +116,8 @@ func main() {
 		log.Printf("loaded %d prior hop samples from %s", len(priorHops), *hopsLogPath)
 	}
 
+	// The ping hub and routes exist even with -no-ping, so the dashboard just
+	// shows old or empty data instead of erroring.
 	pingHub := NewHub[PingSample](int(BackfillWindow / PingInterval))
 	priorPings, err := LoadSamplesSince[PingSample](*pingLogPath, time.Now().Add(-BackfillWindow))
 	if err != nil {
@@ -151,6 +155,7 @@ func main() {
 		pingLogPath:      *pingLogPath,
 		hopsLogPath:      *hopsLogPath,
 		rollupLogPath:    *rollupLogPath,
+		outageLogPath:    *outageLogPath,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ server error: %v\n", err)
 		os.Exit(1)
