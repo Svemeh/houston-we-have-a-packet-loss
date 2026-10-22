@@ -89,6 +89,14 @@ const (
 	TLECachePath       = DataDir + "/starlink.tle"
 	CelestrakUserAgent = "houston-packet-loss/0.1"
 
+	RouteHopsEvents  = "/hopsevents"
+	RouteHopsLog     = "/hopslog"
+	RouteHopsHistory = "/hopshistory"
+	RouteRollup      = "/rollup"
+
+	MaxRollupRange  = 365 * 24 * time.Hour
+	MaxRollupPoints = 2000
+
 	DefaultHopsLogPath = DataDir + "/hops.jsonl"
 
 	// Hourly rollup: one line per hour summarising hops.jsonl
