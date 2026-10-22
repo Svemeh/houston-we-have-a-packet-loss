@@ -49,11 +49,11 @@
 
 .legend-swatch.is-in-cone {
   background: var(--amber);
-  box-shadow: 0 0 7px rgba(245, 183, 64, 0.7);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--amber) 70%, transparent);
 }
 
 .legend-swatch.is-above {
-  background: #4a6076;
+  background: var(--label-dim);
 }
 
 /* The cone is centred on zenith because the dish won't tell us where it's

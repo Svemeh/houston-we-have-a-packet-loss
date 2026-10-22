@@ -32,6 +32,14 @@
 
   let latestSnapshot = null;
 
+  // Canvas needs rgba(); the palette arrives as hex from CSS.
+  const withAlpha = (hexColor, alpha) => {
+    let hex = hexColor.trim().replace("#", "");
+    if (hex.length === 3) hex = hex.split("").map(digit => digit + digit).join("");
+    const value = parseInt(hex, 16);
+    return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
+  };
+
   const readVariable = (name, fallback) => {
     const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return value || fallback;
@@ -43,7 +51,7 @@
     amber: readVariable("--amber", "#f5b740"),
     labelDim: readVariable("--label-dim", "#586675"),
     label: readVariable("--label", "#8a97a6"),
-    aboveHorizon: "#4a6076",
+    aboveHorizon: readVariable("--label-dim", "#586675"),
     mono: readVariable("--mono", "monospace"),
   };
 
@@ -198,19 +206,19 @@
     });
     drawing.closePath();
 
-    drawing.fillStyle = "rgba(245, 183, 64, 0.05)";
+    drawing.fillStyle = withAlpha(theme.amber, 0.05);
     drawing.fill();
 
     // Dashed, because the aim is an assumption rather than a measurement.
     drawing.setLineDash([4, 4]);
-    drawing.strokeStyle = "rgba(245, 183, 64, 0.45)";
+    drawing.strokeStyle = withAlpha(theme.amber, 0.45);
     drawing.lineWidth = 1;
     drawing.stroke();
 
     // Where we think the dish is actually pointed.
     const axis = project(snapshot.cone_azimuth_deg, snapshot.cone_elevation_deg, centreX, centreY, radius);
     drawing.setLineDash([]);
-    drawing.strokeStyle = "rgba(245, 183, 64, 0.55)";
+    drawing.strokeStyle = withAlpha(theme.amber, 0.55);
     drawing.beginPath();
     drawing.moveTo(axis.x - 5, axis.y);
     drawing.lineTo(axis.x + 5, axis.y);
@@ -232,7 +240,7 @@
     }
 
     drawing.save();
-    drawing.shadowColor = "rgba(245, 183, 64, 0.8)";
+    drawing.shadowColor = withAlpha(theme.amber, 0.8);
     drawing.shadowBlur = 8;
     for (const object of objects) {
       if (!object.in_cone) continue;
