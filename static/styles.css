@@ -1,4 +1,5 @@
 :root {
+  --page-pad: clamp(14px, 3vw, 32px);
   --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -140,7 +141,7 @@ body {
   -webkit-font-smoothing: antialiased;
 
   min-height: 100vh;
-  padding: clamp(14px, 3vw, 32px);
+  padding: var(--page-pad);
 }
 
 .console {
@@ -310,16 +311,20 @@ header {
 
 /* ---- Big readouts ------------------------------------------------------ */
 
-.readouts {
+/* Two rows of readouts, split by where the number comes from: the dish's own
+   account of itself, then what this machine measured and what the history
+   says. Each row fills its width rather than leaving a ragged last row. */
+.tiles {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
-  margin-bottom: 10px;
 }
 
-/* Machine-to-internet row: two readouts measured from this machine, not the dish. */
-.readouts.is-machine-to-internet {
-  grid-template-columns: repeat(2, 1fr);
+.tiles.is-dish {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tiles.is-measured {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .label-note {
@@ -333,7 +338,7 @@ header {
   background: var(--panel);
   border: 1px solid var(--edge);
   border-radius: 4px;
-  padding: 16px 16px 14px;
+  padding: 13px 14px 12px;
   position: relative;
   overflow: hidden;
 }
@@ -351,7 +356,7 @@ header {
 }
 
 .reading {
-  margin-top: 12px;
+  margin-top: 9px;
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -359,7 +364,7 @@ header {
 
 .reading-value {
   font-family: var(--mono);
-  font-size: clamp(26px, 5vw, 40px);
+  font-size: clamp(22px, 2.4vw, 30px);
   color: var(--readout);
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -439,6 +444,124 @@ header {
 .range-button:focus-visible {
   outline: 1px solid var(--amber);
   outline-offset: 1px;
+}
+
+/* ---- The screen -------------------------------------------------------- */
+
+/* Everything worth leaving open fits in one viewport; the rest of the charts
+   are below the fold. The deck absorbs the leftover height so the fold lands
+   on a panel edge rather than through the middle of a chart. */
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: calc(100dvh - 2 * var(--page-pad));
+  margin-bottom: 10px;
+}
+
+.deck {
+  flex: 1;
+  min-height: 320px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.deck-main {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+}
+
+/* Inside the deck a scope is told how tall to be, so its canvas stretches
+   instead of keeping the fixed height it has below the fold. */
+.deck .scope {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.deck .scope canvas {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+}
+
+/* ---- Incidents --------------------------------------------------------- */
+
+.incident-filter {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.incident-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  margin-right: -6px;
+  padding-right: 6px;
+}
+
+.incident-list::-webkit-scrollbar {
+  display: none;
+}
+
+.incident {
+  display: grid;
+  grid-template-columns: 62px 7px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--grid);
+}
+
+.incident-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--label-dim);
+}
+
+.incident-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--label-dim);
+}
+
+.incident.is-loss .incident-dot {
+  background: var(--alarm);
+}
+
+.incident.is-latency .incident-dot {
+  background: var(--caution);
+}
+
+.incident.is-outage .incident-dot {
+  background: var(--chart-download);
+}
+
+.incident-text {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.incident-duration {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--label);
+  text-align: right;
+}
+
+.incident-empty {
+  font-size: 12px;
+  color: var(--label-dim);
+  margin: 8px 0 0;
 }
 
 /* ---- Strip charts ------------------------------------------------------ */
@@ -629,8 +752,18 @@ footer {
 
 /* ---- Responsive -------------------------------------------------------- */
 
+@media (max-width: 1100px) {
+  .deck {
+    grid-template-columns: 1fr;
+  }
+  .screen {
+    min-height: 0;
+  }
+}
+
 @media (max-width: 720px) {
-  .readouts {
+  .tiles.is-dish,
+  .tiles.is-measured {
     grid-template-columns: repeat(2, 1fr);
   }
   .status-strip {
