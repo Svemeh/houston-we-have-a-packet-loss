@@ -15,6 +15,10 @@
   ];
 
   const canvas = document.getElementById("sky-scope");
+  // The scope is embedded on the dashboard too, with only some of these
+  // readouts beside it, so every element here is optional and the canvas is
+  // the only thing this file insists on.
+  if (!canvas) return;
   const drawing = canvas.getContext("2d");
 
   const elements = {
@@ -26,8 +30,14 @@
     above: document.getElementById("count-above"),
     coneNote: document.getElementById("cone-note"),
     elementAge: document.getElementById("element-age"),
-    connection: document.getElementById("connection-status"),
-    connectionText: document.getElementById("connection-text"),
+    // Its own id: on the dashboard the footer indicator belongs to the
+    // telemetry stream, and two scripts writing one element is a race.
+    connection: document.getElementById("sky-connection"),
+    connectionText: document.getElementById("sky-connection-text"),
+  };
+
+  const setText = (element, text) => {
+    if (element) element.textContent = text;
   };
 
   let latestSnapshot = null;
@@ -274,6 +284,7 @@
   };
 
   const setStripState = (state) => {
+    if (!elements.strip) return;
     elements.strip.classList.remove("state-nominal", "state-caution", "state-alarm");
     if (state) elements.strip.classList.add(state);
   };
@@ -289,38 +300,39 @@
     latestSnapshot = snapshot;
 
     const aboveHorizon = (snapshot.objects || []).length;
-    elements.inCone.textContent = snapshot.in_cone_count;
-    elements.above.textContent = aboveHorizon;
-    elements.clock.textContent = new Date(snapshot.timestamp).toLocaleTimeString();
+    setText(elements.inCone, snapshot.in_cone_count);
+    setText(elements.above, aboveHorizon);
+    setText(elements.clock, new Date(snapshot.timestamp).toLocaleTimeString());
 
-    elements.coneNote.textContent = describeCone(snapshot);
-    elements.coneNote.classList.toggle("is-assumed", Boolean(snapshot.cone_is_assumed));
+    setText(elements.coneNote, describeCone(snapshot));
+    if (elements.coneNote) elements.coneNote.classList.toggle("is-assumed", Boolean(snapshot.cone_is_assumed));
 
-    elements.elementAge.textContent = formatAge(snapshot.elements_age_s);
-    elements.elementAge.classList.toggle("is-alarm", Boolean(snapshot.elements_are_stale));
+    setText(elements.elementAge, formatAge(snapshot.elements_age_s));
+    if (elements.elementAge) elements.elementAge.classList.toggle("is-alarm", Boolean(snapshot.elements_are_stale));
 
     if (snapshot.tracked_count === 0) {
       setStripState("state-caution");
-      elements.headline.textContent = "NO ELEMENTS LOADED";
-      elements.subtext.textContent = "waiting on celestrak";
+      setText(elements.headline, "NO ELEMENTS LOADED");
+      setText(elements.subtext, "waiting on celestrak");
     } else if (snapshot.in_cone_count === 0) {
       setStripState("state-caution");
-      elements.headline.textContent = "NOTHING IN THE CONE";
-      elements.subtext.textContent = `${aboveHorizon} above horizon`;
+      setText(elements.headline, "NOTHING IN THE CONE");
+      setText(elements.subtext, `${aboveHorizon} above horizon`);
     } else {
       setStripState("state-nominal");
-      elements.headline.textContent =
-        `${snapshot.in_cone_count} SATELLITE${snapshot.in_cone_count === 1 ? "" : "S"} IN VIEW`;
-      elements.subtext.textContent = `${aboveHorizon} above horizon · ${snapshot.tracked_count} tracked`;
+      setText(elements.headline,
+        `${snapshot.in_cone_count} SATELLITE${snapshot.in_cone_count === 1 ? "" : "S"} IN VIEW`);
+      setText(elements.subtext, `${aboveHorizon} above horizon · ${snapshot.tracked_count} tracked`);
     }
 
     render();
   };
 
   const setConnection = (state, text) => {
+    if (!elements.connection) return;
     elements.connection.classList.remove("is-live", "is-lost");
     if (state) elements.connection.classList.add(state);
-    elements.connectionText.textContent = text;
+    setText(elements.connectionText, text);
   };
 
   // ---- Stream ----------------------------------------------------------

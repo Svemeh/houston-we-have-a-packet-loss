@@ -11,6 +11,16 @@
   };
 
   const byId = elementId => document.getElementById(elementId);
+  // The tile set is chosen in index.html; a readout whose tile isn't there is
+  // simply not shown, rather than throwing on every sample.
+  const setText = (elementId, text) => {
+    const element = byId(elementId);
+    if (element) element.textContent = text;
+  };
+  const setClassName = (elementId, className) => {
+    const element = byId(elementId);
+    if (element) element.className = className;
+  };
   const alarmStrip = byId("alarm-strip");
   const alarmMessage = byId("alarm-message");
   const alarmSubtext = byId("alarm-subtext");
@@ -494,45 +504,45 @@
 
   function updateReadouts(sample) {
     setLinkState(sample.link_state);
-    byId("value-latency").textContent = formatNumber(sample.latency_ms, 0);
-    byId("value-download").textContent = formatNumber(sample.download_mbps, 1);
-    byId("value-upload").textContent = formatNumber(sample.upload_mbps, 1);
+    setText("value-latency", formatNumber(sample.latency_ms, 0));
+    setText("value-download", formatNumber(sample.download_mbps, 1));
+    setText("value-upload", formatNumber(sample.upload_mbps, 1));
     const dropPercent = (sample.drop_rate_fraction || 0) * 100;
-    byId("value-packet-loss").textContent = formatNumber(dropPercent, 1);
+    setText("value-packet-loss", formatNumber(dropPercent, 1));
 
-    byId("cell-latency").className =
+    setClassName("cell-latency",
       "cell" +
       (sample.latency_ms > LATENCY_HOT_MS
         ? " is-critical"
         : sample.latency_ms > LATENCY_WARM_MS
           ? " is-caution"
-          : "");
-    byId("cell-packet-loss").className =
+          : ""));
+    setClassName("cell-packet-loss",
       "cell" +
       (dropPercent > DROP_HOT_PERCENT
         ? " is-critical"
         : dropPercent > DROP_WARM_PERCENT
           ? " is-caution"
-          : "");
+          : ""));
 
     const isOffline = sample.link_state === "OFFLINE";
-    byId("line-of-sight-state").textContent = isOffline
+    setText("line-of-sight-state", isOffline
       ? "—"
       : sample.obstructed
         ? "OBSTRUCTED"
-        : "CLEAR";
-    byId("line-of-sight").className =
-      "status-value is-row " + (isOffline ? "" : sample.obstructed ? "is-alarm" : "is-nominal");
-    byId("line-of-sight-percent").textContent = isOffline
+        : "CLEAR");
+    setClassName("line-of-sight",
+      "status-value is-row " + (isOffline ? "" : sample.obstructed ? "is-alarm" : "is-nominal"));
+    setText("line-of-sight-percent", isOffline
       ? ""
-      : formatNumber((sample.obstruction_fraction || 0) * 100, 2) + "% obstruction";
+      : formatNumber((sample.obstruction_fraction || 0) * 100, 2) + "% obstruction");
 
-    if (sample.hardware_version) byId("hardware-version").textContent = sample.hardware_version;
-    if (sample.software_version) byId("software-version").textContent = sample.software_version;
-    byId("uptime-clock").textContent = formatUptimeClock(sample.uptime_seconds);
-    byId("last-contact").textContent = sample.timestamp
+    if (sample.hardware_version) setText("hardware-version", sample.hardware_version);
+    if (sample.software_version) setText("software-version", sample.software_version);
+    setText("uptime-clock", formatUptimeClock(sample.uptime_seconds));
+    setText("last-contact", sample.timestamp
       ? new Date(sample.timestamp).toLocaleTimeString()
-      : new Date().toLocaleTimeString();
+      : new Date().toLocaleTimeString());
   }
 
   function chartSample(sample, silent) {
@@ -574,19 +584,19 @@
 
     const lostCount = recentPings.filter(recent => recent.lost).length;
     const lossPercent = (lostCount / recentPings.length) * 100;
-    byId("value-machine-to-internet-loss").textContent = formatNumber(lossPercent, 1);
-    byId("cell-machine-to-internet-loss").className = "cell" + severityClass(lossPercent, DROP_HOT_PERCENT, DROP_WARM_PERCENT);
+    setText("value-machine-to-internet-loss", formatNumber(lossPercent, 1));
+    setClassName("cell-machine-to-internet-loss", "cell" + severityClass(lossPercent, DROP_HOT_PERCENT, DROP_WARM_PERCENT));
 
-    byId("value-machine-to-internet-ping").textContent = ping.lost ? "—" : formatNumber(ping.rtt_ms, 0);
-    byId("cell-machine-to-internet-ping").className =
-      "cell" + (ping.lost ? " is-critical" : severityClass(ping.rtt_ms, LATENCY_HOT_MS, LATENCY_WARM_MS));
-    if (ping.target) byId("machine-to-internet-ping-target").textContent = ping.target;
+    setText("value-machine-to-internet-ping", ping.lost ? "—" : formatNumber(ping.rtt_ms, 0));
+    setClassName("cell-machine-to-internet-ping",
+      "cell" + (ping.lost ? " is-critical" : severityClass(ping.rtt_ms, LATENCY_HOT_MS, LATENCY_WARM_MS)));
+    if (ping.target) setText("machine-to-internet-ping-target", ping.target);
   }
 
   function clearPingReadouts() {
     recentPings = [];
-    for (const id of ["value-machine-to-internet-ping", "value-machine-to-internet-loss"]) byId(id).textContent = "—";
-    for (const id of ["cell-machine-to-internet-ping", "cell-machine-to-internet-loss"]) byId(id).className = "cell";
+    for (const id of ["value-machine-to-internet-ping", "value-machine-to-internet-loss"]) setText(id, "—");
+    for (const id of ["cell-machine-to-internet-ping", "cell-machine-to-internet-loss"]) setClassName(id, "cell");
   }
 
   function chartPing(ping, silent) {
@@ -682,8 +692,207 @@
         for (const bucket of pingPayload.samples) chartPing(bucket, true);
       }
       scopes.forEach(scope => scope.draw());
+      loadIncidents();
     } finally {
       if (loadToken === latestRangeLoadToken) rangeBarEl.classList.remove("is-loading");
+    }
+  }
+
+  // ---- Incidents ---------------------------------------------------------
+  // Derived server-side from the hop and outage logs, so this just renders
+  // whatever /incidents returns for the selected range.
+  const INCIDENT_KINDS = [
+    { id: "", label: "All" },
+    { id: "loss", label: "Loss" },
+    { id: "latency", label: "Latency" },
+    { id: "outage", label: "Dish" },
+  ];
+  const INCIDENT_SCOPE_TEXT = {
+    local: "local — router or dish lost it too",
+    upstream: "upstream — both destinations lost it",
+    cloudflare: "Cloudflare path only",
+  };
+  const MAX_RENDERED_INCIDENTS = 200;
+  // 24-hour, so the column stays one line whatever the locale default is.
+  const INCIDENT_TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+
+  const incidentListEl = byId("incident-list");
+  const incidentFilterEl = byId("incident-filter");
+  const incidentCountEl = byId("incident-count");
+  let selectedIncidentKind = "";
+
+  function buildIncidentFilter() {
+    for (const kind of INCIDENT_KINDS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "range-button";
+      button.dataset.id = kind.id;
+      button.textContent = kind.label;
+      button.addEventListener("click", () => {
+        selectedIncidentKind = kind.id;
+        markActiveIncidentKind();
+        loadIncidents();
+      });
+      incidentFilterEl.appendChild(button);
+    }
+    markActiveIncidentKind();
+  }
+
+  function markActiveIncidentKind() {
+    for (const button of incidentFilterEl.children) {
+      const isActive = button.dataset.id === selectedIncidentKind;
+      button.classList.toggle("is-selected", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    }
+  }
+
+  // A loss burst says where it broke; the others describe themselves.
+  function describeIncident(incident) {
+    if (incident.kind === "loss") {
+      return INCIDENT_SCOPE_TEXT[incident.scope] || "loss";
+    }
+    if (incident.kind === "latency") {
+      return `Latency spike, peak ${Math.round(incident.peak_rtt_ms)} ms`;
+    }
+    return `Dish reported ${incident.cause || "an outage"}`;
+  }
+
+  function formatDuration(seconds) {
+    return seconds >= 1 ? `${Math.round(seconds)}s` : `${seconds.toFixed(1)}s`;
+  }
+
+  function renderIncidents(incidents) {
+    incidentListEl.replaceChildren();
+    if (!incidents.length) {
+      const empty = document.createElement("p");
+      empty.className = "incident-empty";
+      empty.textContent = "Nothing in this range.";
+      incidentListEl.appendChild(empty);
+      return;
+    }
+    for (const incident of incidents.slice(0, MAX_RENDERED_INCIDENTS)) {
+      const row = document.createElement("div");
+      row.className = `incident is-${incident.kind}`;
+
+      const time = document.createElement("span");
+      time.className = "incident-time";
+      time.textContent = INCIDENT_TIME_FORMAT.format(new Date(incident.start));
+
+      const dot = document.createElement("span");
+      dot.className = "incident-dot";
+
+      const text = document.createElement("span");
+      text.className = "incident-text";
+      text.textContent = describeIncident(incident);
+      // The slot is a timing fact, not an attribution: no single incident can
+      // be pinned on a handover, only the distribution of many of them.
+      text.title = `${describeIncident(incident)} · second :${incident.slot_second} of the satellite slot`;
+
+      const duration = document.createElement("span");
+      duration.className = "incident-duration";
+      duration.textContent = formatDuration(incident.duration_s);
+
+      row.append(time, dot, text, duration);
+      incidentListEl.appendChild(row);
+    }
+  }
+
+  async function loadIncidents() {
+    const rangeId = viewWindow.selectedRange.id;
+    const kindQuery = selectedIncidentKind ? `&kind=${selectedIncidentKind}` : "";
+    try {
+      const response = await fetch(`/incidents?range=${encodeURIComponent(rangeId)}${kindQuery}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      const payload = await response.json();
+      const incidents = Array.isArray(payload.incidents) ? payload.incidents : [];
+      incidentCountEl.textContent = `${payload.count} · ${viewWindow.selectedRange.label}`;
+      renderIncidents(incidents);
+    } catch (error) {
+      console.error("could not load incidents", error);
+      incidentCountEl.textContent = "unavailable";
+      renderIncidents([]);
+    }
+  }
+
+  // ---- Summary tiles -----------------------------------------------------
+  // Three tiles the live streams can't answer: they need history. Jitter and
+  // the handover share come from the hourly rollup, bad seconds from the same
+  // incident detection the list below uses.
+  //
+  // END_TARGET must match HopEndTarget in const.go — the rollup records one
+  // set of handover counters, and they are that target's.
+  const END_TARGET = "1.1.1.1";
+  const SUMMARY_RANGE = "7d";
+  const BAD_SECONDS_RANGE = "24h";
+  const BAD_SECONDS_HOURS = 24;
+  const SUMMARY_REFRESH_MS = 5 * 60 * 1000;
+
+  // Below this many lost seconds the worst slot is just the luckiest of
+  // fifteen, so the share is noise and the tile stays blank. Taking the max of
+  // fifteen buckets always finds a winner, even in pure randomness.
+  const MIN_LOSSES_FOR_HANDOVER = 50;
+
+  async function fetchJson(url) {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.json();
+  }
+
+  // The excess on the worst slot over a typical one, as a share of all loss.
+  // The whole worst bucket isn't "the handover" — that second would have lost
+  // something anyway — so the median slot is subtracted first.
+  function handoverShare(rollups) {
+    const slotTotals = [];
+    let totalLost = 0;
+    for (const rollup of rollups) {
+      const perSlot = rollup.handover_loss || [];
+      for (let slot = 0; slot < perSlot.length; slot++) {
+        slotTotals[slot] = (slotTotals[slot] || 0) + perSlot[slot];
+        totalLost += perSlot[slot];
+      }
+    }
+    if (totalLost < MIN_LOSSES_FOR_HANDOVER) return null;
+
+    const sorted = [...slotTotals].sort((first, second) => first - second);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const excess = Math.max(0, Math.max(...slotTotals) - median);
+    return (100 * excess) / totalLost;
+  }
+
+  async function loadSummaryTiles() {
+    try {
+      const payload = await fetchJson(`/rollup?range=${SUMMARY_RANGE}`);
+      const rollups = Array.isArray(payload.samples) ? payload.samples : [];
+      const newest = rollups[rollups.length - 1];
+      const endStats = newest && newest.hops ? newest.hops[END_TARGET] : null;
+
+      setText("value-jitter", endStats ? formatNumber(endStats.jitter_p99_ms, 0) : "—");
+      const share = handoverShare(rollups);
+      setText("value-handover", share === null ? "—" : formatNumber(share, 0));
+    } catch (error) {
+      console.error("could not load rollup", error);
+      setText("value-jitter", "—");
+      setText("value-handover", "—");
+    }
+
+    // Bad seconds: how much of the day was lost or slow, which is the number
+    // that matches how the link feels rather than how it averages.
+    try {
+      const payload = await fetchJson(`/incidents?range=${BAD_SECONDS_RANGE}`);
+      const incidents = Array.isArray(payload.incidents) ? payload.incidents : [];
+      const badSeconds = incidents
+        .filter(incident => incident.kind !== "outage")
+        .reduce((total, incident) => total + incident.duration_s, 0);
+      setText("value-bad-seconds", formatNumber(badSeconds / BAD_SECONDS_HOURS, 1));
+      setClassName("cell-bad-seconds", "cell" + severityClass(badSeconds / BAD_SECONDS_HOURS, 60, 10));
+    } catch (error) {
+      console.error("could not load incidents for bad seconds", error);
+      setText("value-bad-seconds", "—");
     }
   }
 
@@ -761,8 +970,16 @@
     }
   }, REBUCKET_INTERVAL_MS);
 
+  // Incidents are derived from logs that only move once a second; refreshing
+  // on the range change plus a slow timer is enough, and it costs a file read.
+  const INCIDENT_REFRESH_MS = 30 * 1000;
+  setInterval(loadIncidents, INCIDENT_REFRESH_MS);
+  setInterval(loadSummaryTiles, SUMMARY_REFRESH_MS);
+
   window.addEventListener("resize", () => scopes.forEach(scope => scope.resizeCanvas()));
   buildRangeBar();
+  buildIncidentFilter();
+  loadSummaryTiles();
   scopes.forEach(scope => scope.resizeCanvas());
   connectToTelemetryStream();
   connectToPingStream();
