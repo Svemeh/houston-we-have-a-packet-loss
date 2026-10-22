@@ -96,6 +96,12 @@ const (
 
 	MaxRollupRange  = 365 * 24 * time.Hour
 	MaxRollupPoints = 2000
+	RouteIncidents = "/incidents"
+
+	IncidentBurstGapSeconds = 2   // answered seconds tolerated inside one burst
+	IncidentSpikeFactor     = 3.0 // multiple of the window's own median RTT
+	IncidentSpikeFloorMs    = 100 // below this, a spike isn't worth reporting
+	MaxIncidents            = 500
 
 	DefaultHopsLogPath = DataDir + "/hops.jsonl"
 
@@ -119,6 +125,11 @@ var HopTargets = []string{
 	"1.1.1.1",       // Cloudflare anycast, same target as machineToInternet.jsonl
 	"8.8.8.8",       // Google, independent control path
 }
+
+// HopLocalTargets are the hops on this side of the dish.
+var HopLocalTargets = []string{"192.168.2.1", "192.168.100.1"}
+
+const HopControlTarget = "8.8.8.8"
 
 const HopEndTarget = DefaultPingTarget
 
