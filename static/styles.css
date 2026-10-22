@@ -446,46 +446,144 @@ header {
   outline-offset: 1px;
 }
 
-/* ---- The screen -------------------------------------------------------- */
+/* ---- Page body --------------------------------------------------------- */
 
-/* Everything worth leaving open fits in one viewport; the rest of the charts
-   are below the fold. The deck absorbs the leftover height so the fold lands
-   on a panel edge rather than through the middle of a chart. */
-.screen {
+.masthead {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: calc(100dvh - 2 * var(--page-pad));
   margin-bottom: 10px;
 }
 
-.deck {
-  flex: 1;
-  min-height: 320px;
+/* Charts on the left, the sky scope and the incident list on the right. The
+   two columns are the same height, so the list gets whatever the scope
+   doesn't want and scrolls inside it. */
+.body {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
   gap: 10px;
+  margin-bottom: 10px;
 }
 
-.deck-main {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+.body-main {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  min-height: 0;
+  min-width: 0;
 }
 
-/* Inside the deck a scope is told how tall to be, so its canvas stretches
-   instead of keeping the fixed height it has below the fold. */
-.deck .scope {
+.body-side {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.body-side .scope {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-.deck .scope canvas {
-  flex: 1 1 0;
-  height: auto;
-  min-height: 0;
+/* The scope has to stay square or its drawing stretches. A canvas carries an
+   intrinsic size from its width/height attributes, which wins over
+   aspect-ratio, so the square is held by a plain div and the canvas fills it. */
+.sky-square {
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+.sky-square #sky-scope {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The sky scope's legend, shared by the sky page and the dashboard panel. */
+.scope-legend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  justify-content: center;
+
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--label-dim);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.legend-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.legend-swatch.is-in-cone {
+  background: var(--amber);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--amber) 70%, transparent);
+}
+
+.legend-swatch.is-above {
+  background: var(--label-dim);
+}
+
+/* Where the dish is aimed, under the scope it describes. Until the dish
+   reports a boresight the cone is an assumption, and is-assumed says so. */
+.sky-note {
+  margin-top: 8px;
+  text-align: center;
+
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--label-dim);
+}
+
+.sky-note.is-assumed {
+  color: var(--caution);
+}
+
+/* The sky page's alarm strip, shrunk to sit inside the dashboard panel. It
+   keeps the alarm-dot/alarm-message classes so the state colours still apply. */
+.sky-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  margin-bottom: 8px;
+  padding: 6px 10px;
+
+  background: var(--panel-sunken);
+  border: 1px solid var(--edge);
+  border-left-width: 3px;
+  border-left-color: var(--label-dim);
+  border-radius: 3px;
+}
+
+.sky-strip .alarm-dot {
+  width: 8px;
+  height: 8px;
+}
+
+.sky-strip .alarm-message {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.sky-strip .alarm-subtext {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.sky-square {
+  margin-bottom: 8px;
 }
 
 /* ---- Incidents --------------------------------------------------------- */
@@ -753,11 +851,8 @@ footer {
 /* ---- Responsive -------------------------------------------------------- */
 
 @media (max-width: 1100px) {
-  .deck {
+  .body {
     grid-template-columns: 1fr;
-  }
-  .screen {
-    min-height: 0;
   }
 }
 

@@ -6,14 +6,13 @@
   <title>Houston, We Have a Packet Loss</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/dashboard.js" defer></script>
+  <script src="/sky.js" defer></script>
 </head>
 
 <body>
   <div class="console">
 
-    <!-- Everything above the fold: the screen you leave open. The rest of the
-         charts sit below it for when you actually want to dig. -->
-    <div class="screen">
+    <div class="masthead">
 
       <header>
         <div class="callsign">
@@ -78,18 +77,56 @@
 
       <div class="range-bar" id="range-bar" role="group" aria-label="Chart time range"></div>
 
-      <!-- The deck takes whatever height is left, so the fold lands at its
-           bottom edge rather than halfway through a chart. -->
-      <div class="deck">
-        <div class="deck-main">
-          <div class="scope">
-            <div class="scope-head"><span class="label">Ping</span><span class="scope-range-label" id="chart-range-latency"></span></div>
-            <canvas id="chart-latency"></canvas>
+    </div>
+
+    <div class="body">
+      <div class="body-main">
+        <div class="scope">
+          <div class="scope-head"><span class="label">Ping</span><span class="scope-range-label" id="chart-range-latency"></span></div>
+          <canvas id="chart-latency"></canvas>
+        </div>
+        <div class="scope">
+          <div class="scope-head"><span class="label">Packet Loss</span><span class="scope-range-label" id="chart-range-packet-loss"></span></div>
+          <canvas id="chart-packet-loss"></canvas>
+        </div>
+        <div class="scope">
+          <div class="scope-head"><span class="label">Download</span><span class="scope-range-label" id="chart-range-download"></span></div>
+          <canvas id="chart-download"></canvas>
+        </div>
+        <div class="scope">
+          <div class="scope-head"><span class="label">Upload</span><span class="scope-range-label" id="chart-range-upload"></span></div>
+          <canvas id="chart-upload"></canvas>
+        </div>
+        <div class="scope">
+          <div class="scope-head"><span class="label">Machine-to-Internet Ping</span><span class="scope-range-label" id="chart-range-machine-to-internet-ping"></span></div>
+          <canvas id="chart-machine-to-internet-ping"></canvas>
+        </div>
+        <div class="scope">
+          <div class="scope-head"><span class="label">Machine-to-Internet Packet Loss</span><span class="scope-range-label" id="chart-range-machine-to-internet-loss"></span></div>
+          <canvas id="chart-machine-to-internet-loss"></canvas>
+        </div>
+      </div>
+
+      <!-- The sky scope takes the column's width; the incident list takes
+           whatever height is left beside the charts and scrolls inside it. -->
+      <div class="body-side">
+        <div class="scope is-sky">
+          <div class="scope-head">
+            <span class="label">Sky View</span>
           </div>
-          <div class="scope">
-            <div class="scope-head"><span class="label">Packet Loss</span><span class="scope-range-label" id="chart-range-packet-loss"></span></div>
-            <canvas id="chart-packet-loss"></canvas>
+          <div class="sky-strip" id="sky-strip">
+            <span class="alarm-dot"></span>
+            <span class="alarm-message" id="sky-headline">AWAITING ELEMENTS…</span>
+            <span class="alarm-subtext" id="sky-subtext">standing by</span>
           </div>
+          <div class="sky-square">
+            <canvas id="sky-scope"></canvas>
+          </div>
+          <div class="scope-legend">
+            <span class="legend-item"><span class="legend-swatch is-in-cone"></span><span class="tabular-num" id="count-in-cone">—</span> in cone</span>
+            <span class="legend-item"><span class="legend-swatch is-above"></span><span class="tabular-num" id="count-above">—</span> above horizon</span>
+          </div>
+          <div class="sky-note" id="cone-note">—</div>
         </div>
 
         <div class="scope is-list">
@@ -102,27 +139,6 @@
             <p class="incident-empty">Loading…</p>
           </div>
         </div>
-      </div>
-
-    </div>
-
-    <!-- Below the fold -->
-    <div class="scopes">
-      <div class="scope">
-        <div class="scope-head"><span class="label">Download</span><span class="scope-range-label" id="chart-range-download"></span></div>
-        <canvas id="chart-download"></canvas>
-      </div>
-      <div class="scope">
-        <div class="scope-head"><span class="label">Upload</span><span class="scope-range-label" id="chart-range-upload"></span></div>
-        <canvas id="chart-upload"></canvas>
-      </div>
-      <div class="scope">
-        <div class="scope-head"><span class="label">Machine-to-Internet Ping</span><span class="scope-range-label" id="chart-range-machine-to-internet-ping"></span></div>
-        <canvas id="chart-machine-to-internet-ping"></canvas>
-      </div>
-      <div class="scope">
-        <div class="scope-head"><span class="label">Machine-to-Internet Packet Loss</span><span class="scope-range-label" id="chart-range-machine-to-internet-loss"></span></div>
-        <canvas id="chart-machine-to-internet-loss"></canvas>
       </div>
     </div>
 
@@ -148,7 +164,7 @@
     <footer>
       <div class="footer-left">
         <span>HOUSTON, WE HAVE a PACKET LOSS</span>
-        <a href="/log" target="_blank" rel="noopener" class="raw-log-link is-filename" title="Open the raw JSONL telemetry log">dishToPop.jsonl</a><a href="/pinglog" target="_blank" rel="noopener" class="raw-log-link is-filename" title="Open the raw JSONL machine-to-internet ping log">machineToInternet.jsonl</a><a href="/hopslog" target="_blank" rel="noopener" class="raw-log-link is-filename" title="Open the raw JSONL per-hop ping log">hops.jsonl</a><a href="/sky" class="raw-log-link">Sky View</a>
+        <a href="/log" target="_blank" rel="noopener" class="raw-log-link is-filename" title="Open the raw JSONL telemetry log">dishToPop.jsonl</a><a href="/pinglog" target="_blank" rel="noopener" class="raw-log-link is-filename" title="Open the raw JSONL machine-to-internet ping log">machineToInternet.jsonl</a><a href="/hopslog" target="_blank" rel="noopener" class="raw-log-link is-filename" title="Open the raw JSONL per-hop ping log">hops.jsonl</a>
       </div>
       <span class="connection-status" id="connection-status"><span class="connection-dot"></span><span id="connection-text">Connecting…</span></span>
     </footer>
