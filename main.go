@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"time"
+	"syscall"
 )
 
 func main() {
@@ -127,7 +128,7 @@ func main() {
 		log.Printf("loaded %d prior pings from %s", len(priorPings), *pingLogPath)
 	}
 
-	ctx, stopSignalWatch := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stopSignalWatch := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignalWatch()
 
 	go pollLoop(ctx, collector, hub, logFile, tracker)
