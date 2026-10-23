@@ -1,0 +1,17 @@
+services:
+  houston:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "2101:2101"
+    environment:
+      HOUSTON_LAT: ${HOUSTON_LAT:?set HOUSTON_LAT in .env}
+      HOUSTON_LON: ${HOUSTON_LON:?set HOUSTON_LON in .env}
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"
+    volumes:
+      - houston-data:/app/data
+    # command: ["-fake"]   # demo without a dish
+
+volumes:
+  houston-data:
