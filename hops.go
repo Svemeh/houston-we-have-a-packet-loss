@@ -37,7 +37,9 @@ type HopPinger struct {
 func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSample]) *HopPinger {
 	pingers := make([]*Pinger, 0, len(targets))
 	for _, target := range targets {
-		pingers = append(pingers, NewPinger(target, nil, nil))
+		pinger := NewPinger(target, nil, nil)
+		pinger.timeout = HopPingTimeout
+		pingers = append(pingers, pinger)
 	}
 	return &HopPinger{pingers: pingers, hub: hub, logFile: logFile}
 }
