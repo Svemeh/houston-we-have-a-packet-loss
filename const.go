@@ -79,6 +79,9 @@ const (
 	PingInterval       = 1 * time.Second
 	PingTimeout        = 1 * time.Second // no reply within this counts as lost
 
+	// HopPingTimeout is shorter than PingInterval so a lost echo can't stretch a hop round past the next tick
+	HopPingTimeout = 800 * time.Millisecond
+
 	RoutePingEvents  = "/pingevents"
 	RoutePingLog     = "/pinglog"
 	RoutePingHistory = "/pinghistory"

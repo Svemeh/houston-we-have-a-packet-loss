@@ -26,6 +26,7 @@ type Pinger struct {
 	hub        *Hub[PingSample]
 	logFile    *LogFile[PingSample]
 	privileged bool
+	timeout    time.Duration
 }
 
 func NewPinger(target string, hub *Hub[PingSample], logFile *LogFile[PingSample]) *Pinger {
@@ -34,6 +35,7 @@ func NewPinger(target string, hub *Hub[PingSample], logFile *LogFile[PingSample]
 		hub:        hub,
 		logFile:    logFile,
 		privileged: runtime.GOOS == "windows",
+		timeout:    PingTimeout,
 	}
 }
 
@@ -81,7 +83,7 @@ func (pinger *Pinger) PingOnce(ctx context.Context) PingSample {
 
 	echo := probing.New(pinger.target)
 	echo.Count = 1
-	echo.Timeout = PingTimeout
+	echo.Timeout = pinger.timeout
 	echo.SetPrivileged(pinger.privileged)
 	echo.SetLogger(probing.NoopLogger{})
 
