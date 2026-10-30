@@ -16,6 +16,10 @@
   ];
 
   const canvas = document.getElementById("sky-scope");
+  // The scope is embedded on the dashboard too, with only some of these
+  // readouts beside it, so every element here is optional and the canvas is
+  // the only thing this file insists on.
+  if (!canvas) return;
   const drawing = canvas.getContext("2d");
 
   const elements = {
@@ -27,8 +31,11 @@
     above: document.getElementById("count-above"),
     coneNote: document.getElementById("cone-note"),
     elementAge: document.getElementById("element-age"),
-    connection: document.getElementById("connection-status"),
-    connectionText: document.getElementById("connection-text"),
+    // Its own id: on the dashboard the footer indicator belongs to the
+    // telemetry stream, and two scripts writing one element is a race.
+    connection: document.getElementById("sky-connection"),
+    connectionText: document.getElementById("sky-connection-text"),
+    // The location panel is on the sky page only.
     locationPanel: document.getElementById("location-panel"),
     useMyLocation: document.getElementById("use-my-location"),
     geolocationHint: document.getElementById("geolocation-hint"),
@@ -37,6 +44,10 @@
     longitudeInput: document.getElementById("longitude-input"),
     locationStatus: document.getElementById("location-status"),
     changeLocation: document.getElementById("change-location"),
+  };
+
+  const setText = (element, text) => {
+    if (element) element.textContent = text;
   };
 
   let latestSnapshot = null;
@@ -283,6 +294,7 @@
   };
 
   const setStripState = (state) => {
+    if (!elements.strip) return;
     elements.strip.classList.remove("state-nominal", "state-caution", "state-alarm");
     if (state) elements.strip.classList.add(state);
   };
@@ -300,70 +312,82 @@
     latestSnapshot = snapshot;
 
     const aboveHorizon = (snapshot.objects || []).length;
-    elements.inCone.textContent = snapshot.in_cone_count;
-    elements.above.textContent = aboveHorizon;
-    elements.clock.textContent = new Date(snapshot.timestamp).toLocaleTimeString();
+    setText(elements.inCone, snapshot.in_cone_count);
+    setText(elements.above, aboveHorizon);
+    setText(elements.clock, new Date(snapshot.timestamp).toLocaleTimeString());
 
-    elements.coneNote.textContent = describeCone(snapshot);
-    elements.coneNote.classList.toggle("is-assumed", Boolean(snapshot.cone_is_assumed));
+    setText(elements.coneNote, describeCone(snapshot));
+    if (elements.coneNote) elements.coneNote.classList.toggle("is-assumed", Boolean(snapshot.cone_is_assumed));
 
-    elements.elementAge.textContent = formatAge(snapshot.elements_age_s);
-    elements.elementAge.classList.toggle("is-alarm", Boolean(snapshot.elements_are_stale));
+    setText(elements.elementAge, formatAge(snapshot.elements_age_s));
+    if (elements.elementAge) elements.elementAge.classList.toggle("is-alarm", Boolean(snapshot.elements_are_stale));
 
     if (!snapshot.location_set) {
       setStripState("state-caution");
-      elements.headline.textContent = "NO LOCATION SET";
-      elements.subtext.textContent = "set it below";
+      setText(elements.headline, "NO LOCATION SET");
+      setText(elements.subtext, elements.locationPanel ? "set it below" : "set it on sky view");
     } else if (snapshot.tracked_count === 0) {
       setStripState("state-caution");
-      elements.headline.textContent = "NO ELEMENTS LOADED";
-      elements.subtext.textContent = "waiting on celestrak";
+      setText(elements.headline, "NO ELEMENTS LOADED");
+      setText(elements.subtext, "waiting on celestrak");
     } else if (snapshot.in_cone_count === 0) {
       setStripState("state-caution");
-      elements.headline.textContent = "NOTHING IN THE CONE";
-      elements.subtext.textContent = `${aboveHorizon} above horizon`;
+      setText(elements.headline, "NOTHING IN THE CONE");
+      setText(elements.subtext, `${aboveHorizon} above horizon`);
     } else {
       setStripState("state-nominal");
-      elements.headline.textContent =
-        `${snapshot.in_cone_count} SATELLITE${snapshot.in_cone_count === 1 ? "" : "S"} IN VIEW`;
-      elements.subtext.textContent = `${aboveHorizon} above horizon · ${snapshot.tracked_count} tracked`;
+      setText(elements.headline,
+        `${snapshot.in_cone_count} SATELLITE${snapshot.in_cone_count === 1 ? "" : "S"} IN VIEW`);
+      setText(elements.subtext, `${aboveHorizon} above horizon · ${snapshot.tracked_count} tracked`);
     }
 
     render();
   };
 
   const setConnection = (state, text) => {
+    if (!elements.connection) return;
     elements.connection.classList.remove("is-live", "is-lost");
     if (state) elements.connection.classList.add(state);
-    elements.connectionText.textContent = text;
+    setText(elements.connectionText, text);
   };
 
   // ---- Location --------------------------------------------------------
-  // Until the server knows where the dish is, the panel asks. The browser's
+  // Until the server knows where the dish is, the sky page asks. The browser's
   // own location only works on a secure page (http://localhost counts; a LAN
   // address like http://192.168.1.20:2101 doesn't), so typing it in is always
-  // offered too.
+  // offered too. On the dashboard there's no panel and this all sits idle.
 
   let locationSource = "";
 
   const setLocationStatus = (text, isError = false) => {
-    elements.locationStatus.textContent = text;
-    elements.locationStatus.classList.toggle("is-error", isError);
+    setText(elements.locationStatus, text);
+    if (elements.locationStatus) elements.locationStatus.classList.toggle("is-error", isError);
   };
 
   const showLocationPanel = (visible) => {
+    if (!elements.locationPanel) return;
     elements.locationPanel.hidden = !visible;
-    // Only a dashboard-set location can be changed from here.
-    elements.changeLocation.hidden = visible || locationSource !== "settings";
+    // Only a location saved from here can be changed from here.
+    if (elements.changeLocation) elements.changeLocation.hidden = visible || locationSource !== "settings";
   };
 
   const applyLocation = (location) => {
     locationSource = location.source || "";
-    if (location.location_set) {
+    if (location.location_set && elements.latitudeInput && elements.longitudeInput) {
       elements.latitudeInput.value = location.latitude_deg;
       elements.longitudeInput.value = location.longitude_deg;
     }
     showLocationPanel(!location.location_set);
+  };
+
+  const loadLocation = async () => {
+    if (!elements.locationPanel) return;
+    try {
+      const response = await fetch(LOCATION_URL, { cache: "no-store" });
+      if (response.ok) applyLocation(await response.json());
+    } catch (error) {
+      console.error("could not read location", error);
+    }
   };
 
   const saveLocation = async (latitude, longitude) => {
@@ -387,48 +411,41 @@
 
   const roundCoordinate = (value) => Math.round(value * 100) / 100;
 
-  const setUpGeolocation = () => {
+  const setUpLocationPanel = () => {
+    if (!elements.locationPanel) return;
+
     if (!navigator.geolocation || !window.isSecureContext) {
       elements.useMyLocation.disabled = true;
       elements.geolocationHint.hidden = false;
       elements.geolocationHint.textContent =
         `Browser location only works on http://localhost:${window.location.port || 80}. Type it in below instead.`;
-      return;
+    } else {
+      elements.useMyLocation.addEventListener("click", () => {
+        setLocationStatus("Asking the browser…");
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const latitude = roundCoordinate(position.coords.latitude);
+            const longitude = roundCoordinate(position.coords.longitude);
+            elements.latitudeInput.value = latitude;
+            elements.longitudeInput.value = longitude;
+            saveLocation(latitude, longitude);
+          },
+          (error) => {
+            const reason = error.code === error.PERMISSION_DENIED ? "Location permission denied" : "Browser could not find a location";
+            setLocationStatus(`${reason}. Type it in below instead.`, true);
+          },
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 },
+        );
+      });
     }
-    elements.useMyLocation.addEventListener("click", () => {
-      setLocationStatus("Asking the browser…");
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const latitude = roundCoordinate(position.coords.latitude);
-          const longitude = roundCoordinate(position.coords.longitude);
-          elements.latitudeInput.value = latitude;
-          elements.longitudeInput.value = longitude;
-          saveLocation(latitude, longitude);
-        },
-        (error) => {
-          const reason = error.code === error.PERMISSION_DENIED ? "Location permission denied" : "Browser could not find a location";
-          setLocationStatus(`${reason}. Type it in below instead.`, true);
-        },
-        { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 },
-      );
+
+    elements.locationForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      saveLocation(Number(elements.latitudeInput.value), Number(elements.longitudeInput.value));
     });
-  };
 
-  elements.locationForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const latitude = Number(elements.latitudeInput.value);
-    const longitude = Number(elements.longitudeInput.value);
-    saveLocation(latitude, longitude);
-  });
-
-  elements.changeLocation.addEventListener("click", () => showLocationPanel(true));
-
-  const loadLocation = async () => {
-    try {
-      const response = await fetch(LOCATION_URL, { cache: "no-store" });
-      if (response.ok) applyLocation(await response.json());
-    } catch (error) {
-      console.error("could not read location", error);
+    if (elements.changeLocation) {
+      elements.changeLocation.addEventListener("click", () => showLocationPanel(true));
     }
   };
 
@@ -458,7 +475,7 @@
 
   resizeCanvas();
   render();
-  setUpGeolocation();
+  setUpLocationPanel();
   loadLocation();
   connect();
 })();
