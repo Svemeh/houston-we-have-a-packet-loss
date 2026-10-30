@@ -1,14 +1,21 @@
+# For a Linux machine that already runs Docker (server, NAS, Raspberry Pi).
+# On a Mac or Windows PC, use the installer instead: Docker Desktop runs
+# containers in a VM, and its extra network hop shows up in every ping.
+#
+#   docker compose up -d      # dashboard on http://<this machine>:2101
+#   docker compose pull && docker compose up -d   # update
 services:
   houston:
-    build: .
+    image: ghcr.io/svemeh/houston-we-have-a-packet-loss:latest
     restart: unless-stopped
-    ports:
-      - "2101:2101"
+    # Host networking: the container sees the real LAN router (for the router
+    # hop) and pings without Docker's NAT in between. Also means no ports:
+    # Houston listens on port 2101 of this machine directly.
+    network_mode: host
     environment:
-      HOUSTON_LAT: ${HOUSTON_LAT:?set HOUSTON_LAT in .env}
-      HOUSTON_LON: ${HOUSTON_LON:?set HOUSTON_LON in .env}
-    sysctls:
-      net.ipv4.ping_group_range: "0 2147483647"
+      # Optional. Leave unset and set the location on the sky view instead.
+      HOUSTON_LAT: ${HOUSTON_LAT:-}
+      HOUSTON_LON: ${HOUSTON_LON:-}
     volumes:
       - houston-data:/app/data
     # command: ["-fake"]   # demo without a dish
