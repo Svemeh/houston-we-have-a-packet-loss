@@ -90,7 +90,7 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 	if strings.HasPrefix(displayAddress, ":") {
 		displayAddress = "localhost" + displayAddress
 	}
-	log.Printf("%s — dashboard live at http://%s (Ctrl+C to stop)", AppName, displayAddress)
+	log.Printf("%s %s — dashboard live at http://%s (Ctrl+C to stop)", AppName, version, displayAddress)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}

@@ -4,3 +4,4 @@ data
 docs
 .env
 *.exe
+dist

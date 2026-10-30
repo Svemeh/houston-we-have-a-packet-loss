@@ -1,0 +1,43 @@
+# Builds the release binaries. Run by .github/workflows/release.yml on a v* tag.
+# Archive names leave out the version so that install.sh / install.ps1 can
+# always fetch releases/latest/download/<name>.
+version: 2
+
+project_name: houston
+
+builds:
+  - id: houston
+    binary: houston
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64, arm]
+    goarm: ["7"]
+    ignore:
+      - goos: darwin
+        goarch: arm
+      - goos: windows
+        goarch: arm
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: houston
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    # houston_Darwin_arm64.tar.gz, houston_Linux_x86_64.tar.gz,
+    # houston_Linux_armv7.tar.gz, houston_Windows_x86_64.zip, ...
+    name_template: >-
+      {{ .ProjectName }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else if eq .Arch "arm" }}armv{{ .Arm }}{{ else }}{{ .Arch }}{{ end }}
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc

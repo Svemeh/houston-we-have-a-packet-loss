@@ -11,6 +11,9 @@ import (
 	"time"
 )
 
+// version is set at release time with -ldflags "-X main.version=v1.2.3".
+var version = "dev"
+
 func main() {
 	dishAddress := flag.String("addr", DefaultDishAddress, "Starlink dish gRPC address")
 	webListenAddress := flag.String("web", DefaultWebAddress, "dashboard listen address")
@@ -26,7 +29,13 @@ func main() {
 	routerAddress := flag.String("router", RouterAuto, "LAN router to ping: an IP, \"auto\" (default gateway) or \"none\"")
 	outageLogPath := flag.String("outage-log", DefaultOutageLogPath, "dish outage log file (JSONL)")
 	rollupLogPath := flag.String("rollup-log", DefaultRollupLogPath, "hourly hop summary log file (JSONL)")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	collector, err := newCollector(*useFake, *dishAddress)
 	if err != nil {

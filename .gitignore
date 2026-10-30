@@ -13,6 +13,7 @@ data/
 *.dylib
 bin/
 out/
+dist/
 
 # Test artifacts
 *.test
