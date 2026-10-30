@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"time"
 	"syscall"
+	"time"
 )
 
 func main() {
