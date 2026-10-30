@@ -30,11 +30,13 @@ func TestPercentile(t *testing.T) {
 	}
 }
 
+var testHopTargets = hopTargets("192.168.2.1")
+
 // hopRound builds one round where every target answered in rttMs, except the
 // ones listed in lost.
 func hopRound(at time.Time, rttMs float64, lost ...string) HopSample {
 	sample := HopSample{Timestamp: at, Hops: map[string]HopResult{}}
-	for _, target := range HopTargets {
+	for _, target := range testHopTargets {
 		sample.Hops[target] = HopResult{RTTMs: rttMs}
 	}
 	for _, target := range lost {
@@ -81,14 +83,14 @@ func TestSummariseHourBucketsLossBySlot(t *testing.T) {
 	if end.Sent != 3600 || end.Lost != perSlot {
 		t.Errorf("end target sent/lost = %d/%d, want 3600/%d", end.Sent, end.Lost, perSlot)
 	}
-	if router := rollup.Hops[HopTargets[0]]; router.Lost != 0 {
+	if router := rollup.Hops[testHopTargets[0]]; router.Lost != 0 {
 		t.Errorf("router lost %d, want 0", router.Lost)
 	}
 }
 
 func TestSummariseHourJitterSkipsLostEchoes(t *testing.T) {
 	hourStart := time.Date(2026, 9, 22, 14, 0, 0, 0, time.UTC)
-	target := HopTargets[0]
+	target := testHopTargets[0]
 	at := func(second int) time.Time { return hourStart.Add(time.Duration(second) * time.Second) }
 
 	samples := []HopSample{

@@ -119,16 +119,27 @@ const (
 	OutagePollInterval   = 60 * time.Second
 )
 
-// HopTargets are pinged every PingInterval by the hop pinger.
-var HopTargets = []string{
-	"192.168.2.1",   // LAN router
-	"192.168.100.1", // dish
-	"1.1.1.1",       // Cloudflare anycast, same target as machineToInternet.jsonl
-	"8.8.8.8",       // Google, independent control path
+// DishHopTarget is the dish's LAN address, the same on every Starlink setup.
+const DishHopTarget = "192.168.100.1"
+
+// hopTargets lists what the hop pinger pings every PingInterval. router is the
+// LAN router found at startup, or "" when there isn't one we can trust; it is
+// left out rather than guessed.
+func hopTargets(router string) []string {
+	targets := []string{
+		DishHopTarget,
+		"1.1.1.1", // Cloudflare anycast, same target as machineToInternet.jsonl
+		"8.8.8.8", // Google, independent control path
+	}
+	if router != "" {
+		targets = append([]string{router}, targets...)
+	}
+	return targets
 }
 
-// HopLocalTargets are the hops on this side of the dish.
-var HopLocalTargets = []string{"192.168.2.1", "192.168.100.1"}
+// HopLocalTargets are the hops on this side of the dish. main adds the router
+// once it has been found.
+var HopLocalTargets = []string{DishHopTarget}
 
 const HopControlTarget = "8.8.8.8"
 

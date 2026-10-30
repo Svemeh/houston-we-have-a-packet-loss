@@ -23,6 +23,7 @@ func main() {
 	noPing := flag.Bool("no-ping", false, "don't ping from this machine")
 	hopsLogPath := flag.String("hops-log", DefaultHopsLogPath, "per-hop ping log file (JSONL)")
 	noHops := flag.Bool("no-hops", false, "don't ping the hops along the path")
+	routerAddress := flag.String("router", RouterAuto, "LAN router to ping: an IP, \"auto\" (default gateway) or \"none\"")
 	outageLogPath := flag.String("outage-log", DefaultOutageLogPath, "dish outage log file (JSONL)")
 	rollupLogPath := flag.String("rollup-log", DefaultRollupLogPath, "hourly hop summary log file (JSONL)")
 	flag.Parse()
@@ -138,7 +139,11 @@ func main() {
 		go NewPinger(*pingTarget, pingHub, pingLogFile).Run(ctx)
 	}
 	if !*noHops {
-		go NewHopPinger(HopTargets, hopsHub, hopsLogFile).Run(ctx)
+		router := resolveRouter(*routerAddress)
+		if router != "" {
+			HopLocalTargets = []string{router, DishHopTarget}
+		}
+		go NewHopPinger(hopTargets(router), hopsHub, hopsLogFile).Run(ctx)
 		go rollupLoop(ctx, *hopsLogPath, *logPath, rollupLogFile, *rollupLogPath)
 	}
 	if outageSource, ok := collector.(OutageSource); ok {
