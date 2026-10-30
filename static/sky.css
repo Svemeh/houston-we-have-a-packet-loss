@@ -62,8 +62,118 @@
   color: var(--caution);
 }
 
+/* ---- Location panel ----------------------------------------------------
+   Shown until the sky view knows where the dish is. */
+
+.location-panel {
+  background: var(--panel-sunken);
+  border: 1px solid var(--edge);
+  border-left: 4px solid var(--caution);
+  border-radius: 3px;
+
+  padding: 16px 18px;
+  margin-bottom: 10px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.location-panel[hidden] {
+  display: none;
+}
+
+.location-title {
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--caution);
+}
+
+.location-note {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label);
+}
+
+.location-actions,
+.location-form {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.location-hint,
+.location-status {
+  font-size: 12px;
+  color: var(--label-dim);
+}
+
+.location-status.is-error {
+  color: var(--alarm);
+}
+
+.location-form label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--label-dim);
+}
+
+.location-form input {
+  width: 9.5em;
+  padding: 6px 8px;
+
+  background: var(--bg);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+
+  font-family: var(--mono);
+  font-size: 13px;
+  color: #dfe7ef;
+}
+
+.location-form input:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.range-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The footer toggle is a button that looks like the footer links. */
+.location-toggle {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 1px dotted var(--edge);
+  cursor: pointer;
+
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.location-toggle[hidden] {
+  display: none;
+}
+
 @media (max-width: 480px) {
   .scope-frame {
     padding: 10px;
+  }
+
+  .location-panel {
+    padding: 14px;
   }
 }

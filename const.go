@@ -85,6 +85,10 @@ const (
 
 	RouteSky       = "/sky"
 	RouteSkyEvents = "/skyevents"
+	RouteLocation  = "/location"
+
+	// Settings made from the dashboard, such as the location.
+	DefaultSettingsPath = DataDir + "/settings.json"
 
 	TLECachePath       = DataDir + "/starlink.tle"
 	CelestrakUserAgent = "houston-packet-loss/0.1"

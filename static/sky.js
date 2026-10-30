@@ -2,6 +2,7 @@
   "use strict";
 
   const SKY_EVENTS_URL = "/skyevents";
+  const LOCATION_URL = "/location";
   const TO_RADIANS = Math.PI / 180;
 
   // Only 60° is decorative. Zenith, the service floor and the horizon all mean
@@ -28,6 +29,14 @@
     elementAge: document.getElementById("element-age"),
     connection: document.getElementById("connection-status"),
     connectionText: document.getElementById("connection-text"),
+    locationPanel: document.getElementById("location-panel"),
+    useMyLocation: document.getElementById("use-my-location"),
+    geolocationHint: document.getElementById("geolocation-hint"),
+    locationForm: document.getElementById("location-form"),
+    latitudeInput: document.getElementById("latitude-input"),
+    longitudeInput: document.getElementById("longitude-input"),
+    locationStatus: document.getElementById("location-status"),
+    changeLocation: document.getElementById("change-location"),
   };
 
   let latestSnapshot = null;
@@ -286,6 +295,8 @@
   };
 
   const applySnapshot = (snapshot) => {
+    // Set from another tab, or cleared by a restart: ask the server again.
+    if (latestSnapshot && latestSnapshot.location_set !== snapshot.location_set) loadLocation();
     latestSnapshot = snapshot;
 
     const aboveHorizon = (snapshot.objects || []).length;
@@ -299,7 +310,11 @@
     elements.elementAge.textContent = formatAge(snapshot.elements_age_s);
     elements.elementAge.classList.toggle("is-alarm", Boolean(snapshot.elements_are_stale));
 
-    if (snapshot.tracked_count === 0) {
+    if (!snapshot.location_set) {
+      setStripState("state-caution");
+      elements.headline.textContent = "NO LOCATION SET";
+      elements.subtext.textContent = "set it below";
+    } else if (snapshot.tracked_count === 0) {
       setStripState("state-caution");
       elements.headline.textContent = "NO ELEMENTS LOADED";
       elements.subtext.textContent = "waiting on celestrak";
@@ -321,6 +336,100 @@
     elements.connection.classList.remove("is-live", "is-lost");
     if (state) elements.connection.classList.add(state);
     elements.connectionText.textContent = text;
+  };
+
+  // ---- Location --------------------------------------------------------
+  // Until the server knows where the dish is, the panel asks. The browser's
+  // own location only works on a secure page (http://localhost counts; a LAN
+  // address like http://192.168.1.20:2101 doesn't), so typing it in is always
+  // offered too.
+
+  let locationSource = "";
+
+  const setLocationStatus = (text, isError = false) => {
+    elements.locationStatus.textContent = text;
+    elements.locationStatus.classList.toggle("is-error", isError);
+  };
+
+  const showLocationPanel = (visible) => {
+    elements.locationPanel.hidden = !visible;
+    // Only a dashboard-set location can be changed from here.
+    elements.changeLocation.hidden = visible || locationSource !== "settings";
+  };
+
+  const applyLocation = (location) => {
+    locationSource = location.source || "";
+    if (location.location_set) {
+      elements.latitudeInput.value = location.latitude_deg;
+      elements.longitudeInput.value = location.longitude_deg;
+    }
+    showLocationPanel(!location.location_set);
+  };
+
+  const saveLocation = async (latitude, longitude) => {
+    setLocationStatus("Saving…");
+    try {
+      const response = await fetch(LOCATION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ latitude_deg: latitude, longitude_deg: longitude }),
+      });
+      if (!response.ok) {
+        setLocationStatus((await response.text()).trim() || `Failed (${response.status})`, true);
+        return;
+      }
+      applyLocation(await response.json());
+      setLocationStatus("");
+    } catch (error) {
+      setLocationStatus("Could not reach Houston", true);
+    }
+  };
+
+  const roundCoordinate = (value) => Math.round(value * 100) / 100;
+
+  const setUpGeolocation = () => {
+    if (!navigator.geolocation || !window.isSecureContext) {
+      elements.useMyLocation.disabled = true;
+      elements.geolocationHint.hidden = false;
+      elements.geolocationHint.textContent =
+        `Browser location only works on http://localhost:${window.location.port || 80}. Type it in below instead.`;
+      return;
+    }
+    elements.useMyLocation.addEventListener("click", () => {
+      setLocationStatus("Asking the browser…");
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const latitude = roundCoordinate(position.coords.latitude);
+          const longitude = roundCoordinate(position.coords.longitude);
+          elements.latitudeInput.value = latitude;
+          elements.longitudeInput.value = longitude;
+          saveLocation(latitude, longitude);
+        },
+        (error) => {
+          const reason = error.code === error.PERMISSION_DENIED ? "Location permission denied" : "Browser could not find a location";
+          setLocationStatus(`${reason}. Type it in below instead.`, true);
+        },
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 },
+      );
+    });
+  };
+
+  elements.locationForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const latitude = Number(elements.latitudeInput.value);
+    const longitude = Number(elements.longitudeInput.value);
+    saveLocation(latitude, longitude);
+  });
+
+  elements.changeLocation.addEventListener("click", () => showLocationPanel(true));
+
+  const loadLocation = async () => {
+    try {
+      const response = await fetch(LOCATION_URL, { cache: "no-store" });
+      if (response.ok) applyLocation(await response.json());
+    } catch (error) {
+      console.error("could not read location", error);
+    }
   };
 
   // ---- Stream ----------------------------------------------------------
@@ -349,5 +458,7 @@
 
   resizeCanvas();
   render();
+  setUpGeolocation();
+  loadLocation();
   connect();
 })();

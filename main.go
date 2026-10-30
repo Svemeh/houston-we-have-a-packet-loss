@@ -92,12 +92,15 @@ func main() {
 	hubCapacity := int(BackfillWindow / DefaultPollInterval)
 	hub := NewHub[TelemetrySample](hubCapacity)
 
-	observer, err := LoadObserver()
+	observer, locationSource, err := LoadObserver(DefaultSettingsPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "✗ %v\n", err)
 		os.Exit(1)
 	}
-	tracker := NewSkyTracker(observer)
+	if locationSource == "" {
+		log.Printf("sky: no location set yet; the sky view (%s) will ask for it", RouteSky)
+	}
+	tracker := NewSkyTracker(observer, locationSource)
 
 	priorSamples, err := LoadSamplesSince[TelemetrySample](*logPath, time.Now().Add(-BackfillWindow))
 	if err != nil {
@@ -162,6 +165,7 @@ func main() {
 		hopsLogPath:      *hopsLogPath,
 		rollupLogPath:    *rollupLogPath,
 		outageLogPath:    *outageLogPath,
+		settingsPath:     DefaultSettingsPath,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ server error: %v\n", err)
 		os.Exit(1)

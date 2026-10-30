@@ -20,55 +20,92 @@ import (
 	satellite "github.com/joshuaferrara/go-satellite"
 )
 
-// Where the dish sits. Read from the environment so a real position never
-// lands in the repo. Altitude is deliberately absent: at 550 km slant range a
-// couple of hundred metres moves a look angle by ~0.02°, well under the 0.1°
-// we round to on the wire.
+// Where the dish sits. Comes from the environment or the dashboard, so a real
+// position never lands in the repo. Altitude is deliberately absent: at 550 km
+// slant range a couple of hundred metres moves a look angle by ~0.02°, well
+// under the 0.1° we round to on the wire.
 type Observer struct {
-	LatitudeDeg  float64
-	LongitudeDeg float64
+	LatitudeDeg  float64 `json:"latitude_deg"`
+	LongitudeDeg float64 `json:"longitude_deg"`
+}
+
+func (observer Observer) Validate() error {
+	if math.IsNaN(observer.LatitudeDeg) || math.IsNaN(observer.LongitudeDeg) ||
+		observer.LatitudeDeg < -90 || observer.LatitudeDeg > 90 ||
+		observer.LongitudeDeg < -180 || observer.LongitudeDeg > 180 {
+		return fmt.Errorf("position out of range: %.4f, %.4f", observer.LatitudeDeg, observer.LongitudeDeg)
+	}
+	return nil
 }
 
 const (
 	envLatitude  = "HOUSTON_LAT"
 	envLongitude = "HOUSTON_LON"
 	envFilePath  = ".env"
+
+	// Where a location came from. The environment wins over the dashboard, so
+	// the dashboard can't change one that was set there.
+	LocationFromEnv      = "env"
+	LocationFromSettings = "settings"
 )
 
-// LoadObserver prefers real environment variables and falls back to .env.
-// A missing .env is not an error; missing coordinates are.
+// LoadObserver finds the dish's position: real environment variables first,
+// then .env, then the location saved from the sky view. source is "" when
+// none of them has one; the app runs anyway and the sky view asks for it.
+// Coordinates that are set but wrong are still an error.
 //
 // The dish knows its own position, but refuses to hand it over unless
 // location_request_mode is set to LOCAL — a config write that needs SpaceX's
-// signing credentials. So these two values stay manual.
-func LoadObserver() (Observer, error) {
+// signing credentials. So the user has to supply it.
+func LoadObserver(settingsPath string) (observer Observer, source string, err error) {
 	loadEnvFile(envFilePath)
 
-	latitude, err := requiredFloat(envLatitude)
+	latitude, haveLatitude, err := optionalFloat(envLatitude)
 	if err != nil {
-		return Observer{}, err
+		return Observer{}, "", err
 	}
-	longitude, err := requiredFloat(envLongitude)
+	longitude, haveLongitude, err := optionalFloat(envLongitude)
 	if err != nil {
-		return Observer{}, err
+		return Observer{}, "", err
 	}
-	if latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 {
-		return Observer{}, fmt.Errorf("observer position out of range: %.4f, %.4f", latitude, longitude)
+	switch {
+	case haveLatitude && haveLongitude:
+		observer = Observer{LatitudeDeg: latitude, LongitudeDeg: longitude}
+		if err := observer.Validate(); err != nil {
+			return Observer{}, "", fmt.Errorf("%s/%s: %w", envLatitude, envLongitude, err)
+		}
+		return observer, LocationFromEnv, nil
+	case haveLatitude || haveLongitude:
+		return Observer{}, "", fmt.Errorf("set both %s and %s, or neither", envLatitude, envLongitude)
 	}
 
-	return Observer{LatitudeDeg: latitude, LongitudeDeg: longitude}, nil
+	settings, err := LoadSettings(settingsPath)
+	if err != nil {
+		log.Printf("sky: ignoring %s: %v", settingsPath, err)
+		return Observer{}, "", nil
+	}
+	if settings.Location == nil {
+		return Observer{}, "", nil
+	}
+	if err := settings.Location.Validate(); err != nil {
+		log.Printf("sky: ignoring location in %s: %v", settingsPath, err)
+		return Observer{}, "", nil
+	}
+	return *settings.Location, LocationFromSettings, nil
 }
 
-func requiredFloat(key string) (float64, error) {
+// optionalFloat reads a number from the environment; found is false when the
+// variable is unset or empty.
+func optionalFloat(key string) (value float64, found bool, err error) {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
-		return 0, fmt.Errorf("%s is not set (put it in %s)", key, envFilePath)
+		return 0, false, nil
 	}
-	value, err := strconv.ParseFloat(raw, 64)
+	value, err = strconv.ParseFloat(raw, 64)
 	if err != nil {
-		return 0, fmt.Errorf("%s=%q is not a number", key, raw)
+		return 0, false, fmt.Errorf("%s=%q is not a number", key, raw)
 	}
-	return value, nil
+	return value, true, nil
 }
 
 // loadEnvFile copies KEY=value lines into the process environment without
@@ -111,7 +148,10 @@ type SkyObject struct {
 // SkySnapshot is everything above the horizon at one instant, plus enough
 // context for the client to say honestly how much of it is guesswork.
 type SkySnapshot struct {
-	Timestamp        time.Time   `json:"timestamp"`
+	Timestamp time.Time `json:"timestamp"`
+	// LocationSet is false until a position is known; nothing is propagated
+	// before then, and the sky view asks for one.
+	LocationSet      bool        `json:"location_set"`
 	Objects          []SkyObject `json:"objects"`
 	InConeCount      int         `json:"in_cone_count"`
 	TrackedCount     int         `json:"tracked_count"`      // elements that can reach our latitude
@@ -135,10 +175,11 @@ type trackedSatellite struct {
 // SkyTracker holds the current element set, propagates it on a tick, and fans
 // each snapshot out to connected browsers.
 type SkyTracker struct {
-	observer   Observer
 	httpClient *http.Client
 
 	mutex             sync.RWMutex
+	observer          Observer
+	locationSource    string // "" until a position is known
 	elements          []trackedSatellite
 	catalogCount      int
 	elementsFetchedAt time.Time
@@ -152,11 +193,12 @@ type SkyTracker struct {
 	haveBoresight    bool
 }
 
-func NewSkyTracker(observer Observer) *SkyTracker {
+func NewSkyTracker(observer Observer, locationSource string) *SkyTracker {
 	return &SkyTracker{
-		observer:    observer,
-		httpClient:  &http.Client{Timeout: TLEFetchTimeout},
-		subscribers: make(map[chan SkySnapshot]struct{}),
+		observer:       observer,
+		locationSource: locationSource,
+		httpClient:     &http.Client{Timeout: TLEFetchTimeout},
+		subscribers:    make(map[chan SkySnapshot]struct{}),
 		// Until the dish reports in, aim straight up and say so.
 		coneElevationDeg: 90,
 	}
@@ -171,6 +213,35 @@ func (tracker *SkyTracker) SetBoresight(azimuthDeg, elevationDeg float64) {
 	tracker.coneAzimuthDeg = azimuthDeg
 	tracker.coneElevationDeg = elevationDeg
 	tracker.haveBoresight = true
+}
+
+// Location returns the current position and where it came from; source is ""
+// when there is none yet.
+func (tracker *SkyTracker) Location() (observer Observer, source string) {
+	tracker.mutex.RLock()
+	defer tracker.mutex.RUnlock()
+	return tracker.observer, tracker.locationSource
+}
+
+// SetObserver moves the observer, then re-filters the cached elements for the
+// new latitude so the sky view updates without waiting for a download.
+func (tracker *SkyTracker) SetObserver(observer Observer, source string) {
+	tracker.mutex.Lock()
+	tracker.observer = observer
+	tracker.locationSource = source
+	tracker.mutex.Unlock()
+
+	if err := tracker.loadCachedElements(); err != nil {
+		log.Printf("sky: no usable element cache yet (%v)", err)
+	}
+}
+
+// filterLatitude is the latitude the element prefilter works against. With no
+// location yet it's the equator, which keeps every satellite.
+func (tracker *SkyTracker) filterLatitude() float64 {
+	tracker.mutex.RLock()
+	defer tracker.mutex.RUnlock()
+	return tracker.observer.LatitudeDeg
 }
 
 // angularSeparation is the great-circle angle between two directions in the
@@ -244,7 +315,7 @@ func (tracker *SkyTracker) loadCachedElements() error {
 	if err != nil {
 		return err
 	}
-	tracked, catalogCount, err := parseElementStream(file, tracker.observer.LatitudeDeg)
+	tracked, catalogCount, err := parseElementStream(file, tracker.filterLatitude())
 	if err != nil {
 		return err
 	}
@@ -295,7 +366,8 @@ func (tracker *SkyTracker) RefreshElements(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	tracked, catalogCount, err := parseElementStream(bytes.NewReader(rawElements), tracker.observer.LatitudeDeg)
+	latitude := tracker.filterLatitude()
+	tracked, catalogCount, err := parseElementStream(bytes.NewReader(rawElements), latitude)
 	if err != nil {
 		return err
 	}
@@ -311,8 +383,7 @@ func (tracker *SkyTracker) RefreshElements(ctx context.Context) error {
 	}
 	tracker.storeElements(tracked, catalogCount, time.Now())
 
-	log.Printf("sky: %d of %d satellites can reach %.2f° latitude", len(tracked), catalogCount,
-		math.Abs(tracker.observer.LatitudeDeg))
+	log.Printf("sky: %d of %d satellites can reach %.2f° latitude", len(tracked), catalogCount, math.Abs(latitude))
 	return nil
 }
 
@@ -409,10 +480,13 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 	coneAzimuthDeg := tracker.coneAzimuthDeg
 	coneElevationDeg := tracker.coneElevationDeg
 	haveBoresight := tracker.haveBoresight
+	observer := tracker.observer
+	locationSet := tracker.locationSource != ""
 	tracker.mutex.RUnlock()
 
 	snapshot := SkySnapshot{
 		Timestamp:        now,
+		LocationSet:      locationSet,
 		Objects:          []SkyObject{},
 		TrackedCount:     len(elements),
 		CatalogCount:     catalogCount,
@@ -428,7 +502,7 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 		snapshot.ElementsAgeS = int64(elementAge.Seconds())
 		snapshot.ElementsAreStale = elementAge > TLEStaleAfter
 	}
-	if len(elements) == 0 {
+	if len(elements) == 0 || !locationSet {
 		return snapshot
 	}
 
@@ -439,8 +513,8 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 	julianDay := satellite.JDay(year, int(month), day, hour, minute, second)
 
 	observerCoords := satellite.LatLong{
-		Latitude:  tracker.observer.LatitudeDeg * satellite.DEG2RAD,
-		Longitude: tracker.observer.LongitudeDeg * satellite.DEG2RAD,
+		Latitude:  observer.LatitudeDeg * satellite.DEG2RAD,
+		Longitude: observer.LongitudeDeg * satellite.DEG2RAD,
 	}
 
 	for _, tracked := range elements {

@@ -29,6 +29,28 @@
       <span class="alarm-subtext" id="sky-subtext">standing by</span>
     </div>
 
+    <section class="location-panel" id="location-panel" hidden>
+      <div class="location-title">Where is your dish?</div>
+      <p class="location-note">
+        The sky view needs a position to work out what's overhead. Two decimals (about 1 km) is plenty.
+        It is saved on this machine only.
+      </p>
+      <div class="location-actions">
+        <button type="button" class="range-button is-selected" id="use-my-location">Use my location</button>
+        <span class="location-hint" id="geolocation-hint" hidden></span>
+      </div>
+      <form class="location-form" id="location-form">
+        <label>Latitude
+          <input id="latitude-input" type="number" step="any" min="-90" max="90" placeholder="-90 to 90" required>
+        </label>
+        <label>Longitude
+          <input id="longitude-input" type="number" step="any" min="-180" max="180" placeholder="-180 to 180" required>
+        </label>
+        <button type="submit" class="range-button">Save</button>
+      </form>
+      <div class="location-status" id="location-status" role="status"></div>
+    </section>
+
     <div class="scope-frame">
       <canvas id="sky-scope"></canvas>
       <div class="scope-legend">
@@ -60,6 +82,7 @@
       <div class="footer-left">
         <span>HOUSTON, WE HAVE a PACKET LOSS</span>
         <a href="/" class="raw-log-link">Dashboard</a>
+        <button type="button" class="raw-log-link location-toggle" id="change-location" hidden>Change location</button>
       </div>
       <span class="connection-status" id="connection-status"><span class="connection-dot"></span><span id="connection-text">Connecting…</span></span>
     </footer>
