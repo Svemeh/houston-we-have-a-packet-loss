@@ -42,9 +42,6 @@ func NewPinger(target string, hub *Hub[PingSample], logFile *LogFile[PingSample]
 // Run pings until ctx is cancelled. Errors are logged when they start and when
 // they clear, not once a second.
 func (pinger *Pinger) Run(ctx context.Context) {
-	ticker := time.NewTicker(PingInterval)
-	defer ticker.Stop()
-
 	lastError := ""
 
 	pingOnce := func() {
@@ -66,15 +63,7 @@ func (pinger *Pinger) Run(ctx context.Context) {
 		}
 	}
 
-	pingOnce()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			pingOnce()
-		}
-	}
+	runEverySecondRandomPhase(ctx, "ping "+pinger.target, pingOnce)
 }
 
 // PingOnce sends a single echo and waits up to PingTimeout for the reply.

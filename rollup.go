@@ -33,7 +33,33 @@ type HopRollup struct {
 	// The dish reports ~3s late, so these lag HandoverLoss by that much.
 	DishDropSlots   []int `json:"dish_drop_slots"`
 	DishSlotSamples []int `json:"dish_slot_samples"`
+
+	// From handovers.jsonl: one burst per handover. Bursts with local send
+	// errors are counted apart and left out of the rest, since their loss is
+	// this machine's link, not the handover. Loss duration per burst is
+	// last_lost_ms - first_lost_ms + step_ms, over bursts with loss.
+	HandoverBursts          int     `json:"handover_bursts"`
+	HandoverBurstsWithLoss  int     `json:"handover_bursts_with_loss"`
+	HandoverLostPings       int     `json:"handover_lost_pings"`
+	HandoverLossMsP50       float64 `json:"handover_loss_ms_p50"`
+	HandoverLossMsP90       float64 `json:"handover_loss_ms_p90"`
+	HandoverBurstsSendError int     `json:"handover_bursts_send_error"`
+
+	// Sampling is SamplingRandomPhase when the hour's 1/s samples provably
+	// came from the random-phase scheduler, SamplingUnknown otherwise. Lines
+	// from before the change don't have it. Only random-phase hours are
+	// comparable for overall loss and latency.
+	Sampling string `json:"sampling"`
 }
+
+const (
+	SamplingRandomPhase = "random_phase"
+	SamplingUnknown     = "unknown"
+)
+
+// processStart is when this process began; any hour starting after it was
+// sampled entirely by this binary.
+var processStart = time.Now()
 
 func (rollup HopRollup) SampleTime() time.Time { return rollup.HourStart }
 
@@ -55,7 +81,7 @@ type HopHourStats struct {
 // nothing: the samples are already on disk, and any hour missed while the app
 // was down is picked up on the next tick. Hours already summarised are skipped,
 // which is why it ticks faster than once an hour — a restart shouldn't wait.
-func rollupLoop(ctx context.Context, hopsLogPath, dishLogPath string, rollupLogFile *LogFile[HopRollup], rollupLogPath string) {
+func rollupLoop(ctx context.Context, hopsLogPath, dishLogPath, handoverLogPath string, rollupLogFile *LogFile[HopRollup], rollupLogPath string) {
 	ticker := time.NewTicker(RollupInterval)
 	defer ticker.Stop()
 
@@ -97,8 +123,17 @@ func rollupLoop(ctx context.Context, hopsLogPath, dishLogPath string, rollupLogF
 			dishSamples = nil
 		}
 
+		// Also optional: without it the handover burst fields stay zero.
+		handovers, err := LoadSamplesSince[HandoverSample](handoverLogPath, wanted[0])
+		if err != nil {
+			log.Printf("rollup: could not read %s: %v", handoverLogPath, err)
+			handovers = nil
+		}
+
 		for _, hour := range wanted {
 			rollup := summariseHour(samples, dishSamples, hour)
+			addHandoverBursts(&rollup, handovers, hour)
+			rollup.Sampling = samplingMode(hour, processStart, handovers)
 			// An hour with no samples at all means the app wasn't running.
 			// Record nothing rather than a line claiming total loss.
 			if rollup.Samples == 0 {
@@ -210,6 +245,52 @@ func summariseHour(samples []HopSample, dishSamples []TelemetrySample, hourStart
 		}
 	}
 	return rollup
+}
+
+// addHandoverBursts folds the hour's handover bursts into the rollup.
+func addHandoverBursts(rollup *HopRollup, handovers []HandoverSample, hourStart time.Time) {
+	hourEnd := hourStart.Add(time.Hour)
+	var lossDurations []float64
+	for _, burst := range handovers {
+		if burst.Boundary.Before(hourStart) {
+			continue
+		}
+		if !burst.Boundary.Before(hourEnd) {
+			break // bursts are chronological
+		}
+		if burst.Errors > 0 {
+			rollup.HandoverBurstsSendError++
+			continue
+		}
+		rollup.HandoverBursts++
+		rollup.HandoverLostPings += burst.Lost
+		if burst.Lost == 0 || burst.FirstLostMs == nil || burst.LastLostMs == nil {
+			continue
+		}
+		rollup.HandoverBurstsWithLoss++
+		lossDurations = append(lossDurations, float64(*burst.LastLostMs-*burst.FirstLostMs+burst.StepMs))
+	}
+	sort.Float64s(lossDurations)
+	rollup.HandoverLossMsP50 = percentile(lossDurations, 0.50)
+	rollup.HandoverLossMsP90 = percentile(lossDurations, 0.90)
+}
+
+// samplingMode reports SamplingRandomPhase only when it can be proven: the
+// hour began after this process did, or a burst fired at the hour's first
+// handover, so the random-phase code was running from the top of the hour.
+// The first rollup after an upgrade still summarises older fixed-phase hours
+// from hops.jsonl, and those must not pass as comparable.
+func samplingMode(hourStart, started time.Time, handovers []HandoverSample) string {
+	if !hourStart.Before(started) {
+		return SamplingRandomPhase
+	}
+	firstSlotEnd := hourStart.Add(HandoverSlotSeconds * time.Second)
+	for _, burst := range handovers {
+		if !burst.Boundary.Before(hourStart) && burst.Boundary.Before(firstSlotEnd) {
+			return SamplingRandomPhase
+		}
+	}
+	return SamplingUnknown
 }
 
 // percentile returns the nearest-rank percentile of an already sorted slice,
