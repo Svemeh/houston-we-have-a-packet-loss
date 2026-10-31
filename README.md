@@ -36,7 +36,7 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 - **Per-hop pinger** — router (found from the default gateway), dish, Cloudflare and Google pinged in parallel each second, so a loss can be pinned to a segment of the path.
 - **Dish telemetry** — status and outage history from the dish's gRPC API, including fields newer than the published protobufs (decoded by tag from the unknown-field bytes).
 - **Hourly rollup** — loss, RTT p50/p90/p99/max and jitter per target, plus loss bucketed by second within the 15 s satellite slot. Kept forever at ~600 B/hour.
-- **Satellite sky view** — on the dashboard: every Starlink satellite above the horizon, propagated from Celestrak TLEs with SGP4.
+- **Satellite sky view** — on the dashboard: every Starlink satellite above the horizon, propagated from Celestrak orbital elements (OMM) with SGP4.
 - **Fake mode** — a synthetic dish that cycles through degraded, obstructed, no-signal and offline states, so the UI can be developed without hardware.
 - **Single binary, no database** — static files are embedded; data is append-only JSON Lines, pruned by atomic rewrite.
 
@@ -46,7 +46,7 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 flowchart LR
     Dish[Starlink dish<br/>gRPC :9200] -->|GetStatus 1 s<br/>GetHistory 60 s| Collector
     Net[Router · Dish · 1.1.1.1 · 8.8.8.8] -->|ICMP 1 s| Pingers
-    Celestrak -->|TLEs, cached 8 h| Sky[Sky tracker<br/>SGP4]
+    Celestrak -->|OMM elements, cached 8 h| Sky[Sky tracker<br/>SGP4]
 
     Collector --> Hub1[Hub]
     Pingers --> Hub2[Hub]

@@ -58,7 +58,7 @@ const (
 	LinkStateOffline    = "OFFLINE"
 
 	// Sky: satellite tracking.
-	CelestrakStarlinkURL    = "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle"
+	CelestrakStarlinkURL    = "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=json"
 	TLERefreshInterval      = 8 * time.Hour
 	TLERefreshRetryInterval = 5 * time.Minute
 	TLEFetchTimeout         = 30 * time.Second
@@ -92,7 +92,7 @@ const (
 	// Settings made from the dashboard, such as the location.
 	DefaultSettingsPath = DataDir + "/settings.json"
 
-	TLECachePath       = DataDir + "/starlink.tle"
+	ElementCachePath   = DataDir + "/starlink.json"
 	CelestrakUserAgent = "houston-packet-loss/0.1"
 
 	RouteHopsEvents  = "/hopsevents"

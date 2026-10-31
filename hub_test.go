@@ -54,15 +54,13 @@ func TestDeriveLinkState(t *testing.T) {
 }
 
 func TestCanReachLatitude(t *testing.T) {
-	// Columns 9-16 of TLE line 2 hold the inclination.
-	line := func(inclination string) string { return "2 44713 " + inclination + " 123.4567 0001234" }
-	if !canReachLatitude(line(" 53.0544"), 60) {
+	if !canReachLatitude(53.0544, 60) {
 		t.Error("53° shell should be visible from 60°N")
 	}
-	if canReachLatitude(line(" 43.0000"), 70) {
+	if canReachLatitude(43, 70) {
 		t.Error("43° shell should not be visible from 70°N")
 	}
-	if !canReachLatitude(line(" 97.6000"), 70) {
+	if !canReachLatitude(97.6, 70) {
 		t.Error("retrograde 97.6° orbit reaches 82.4°, should be visible from 70°N")
 	}
 }
