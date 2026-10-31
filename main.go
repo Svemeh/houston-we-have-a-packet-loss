@@ -115,7 +115,7 @@ func main() {
 		os.Exit(1)
 	}
 	if locationSource == "" {
-		log.Printf("sky: no location set yet; the sky view (%s) will ask for it", RouteSky)
+		log.Printf("sky: no location set yet; the dashboard will ask for it")
 	}
 	tracker := NewSkyTracker(observer, locationSource)
 

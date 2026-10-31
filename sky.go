@@ -50,8 +50,8 @@ const (
 )
 
 // LoadObserver finds the dish's position: real environment variables first,
-// then .env, then the location saved from the sky view. source is "" when
-// none of them has one; the app runs anyway and the sky view asks for it.
+// then .env, then the location saved from the dashboard. source is "" when
+// none of them has one; the app runs anyway and the dashboard asks for it.
 // Coordinates that are set but wrong are still an error.
 //
 // The dish knows its own position, but refuses to hand it over unless

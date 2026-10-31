@@ -71,9 +71,6 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 		NewLogFileSource[HopSample](sources.hopsLogPath),
 		NewLogFileSource[DishOutage](sources.outageLogPath)))
 
-	router.HandleFunc(RouteSky, func(response http.ResponseWriter, request *http.Request) {
-		http.ServeFileFS(response, request, staticRoot, "sky.html")
-	})
 	router.HandleFunc(RouteSkyEvents, newSkyStreamHandler(sources.tracker))
 	router.HandleFunc(RouteLocation, newLocationHandler(sources.tracker, sources.settingsPath))
 
