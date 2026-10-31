@@ -115,7 +115,7 @@ current distros. If the hops log `permission denied`:
 
 ## Running from source
 
-Requires Go 1.25+ and a Starlink dish on the local network (or `-fake`).
+Requires Go 1.26+ and a Starlink dish on the local network (or `-fake`).
 
 ```sh
 go run .                      # dashboard on http://localhost:2101
@@ -177,33 +177,35 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `static/` | Dashboard (vanilla JS, canvas charts) |
 | `install.sh` · `install.ps1` | Installers (macOS/Linux · Windows) |
 
-## Releasing
-
-Push a version tag:
-
-```sh
-git tag v0.2.0 && git push origin v0.2.0
-```
-
-[`release.yml`](.github/workflows/release.yml) runs the tests, then attaches binaries for macOS, Linux and
-Windows to the GitHub release (GoReleaser, [`.goreleaser.yaml`](.goreleaser.yaml)) and pushes a multi-arch
-image to `ghcr.io/svemeh/houston-we-have-a-packet-loss`. The installers always fetch the latest release.
-
-After the first release, open the package's settings on GitHub and set its visibility to **Public**,
-or `docker pull` fails for everyone else.
-
 ## Testing
 
 ```sh
 go test -race ./...
 ```
 
-Covers the rollup statistics and handover bucketing, both downsamplers, protobuf outage decoding, log
-append/prune/read, hub backpressure and the link-state heuristic. CI runs `gofmt`, `go vet`, tests and a build on every push.
+Covers the rollup statistics and handover bucketing, both downsamplers, protobuf outage decoding, log append/prune/read, hub backpressure and the link-state heuristic.
+
+### CI
+
+Every pull request and push to `main` runs [`ci.yml`](.github/workflows/ci.yml):
+
+| Check | What it does |
+| --- | --- |
+| `lint` | `gofmt`, `go mod tidy`, LF line endings, `go vet`, staticcheck |
+| `test` | `go test -race` on Linux, macOS and Windows |
+| `build` | GoReleaser snapshot: all release binaries and `checksums.txt`, nothing published |
+| `install` | Installs those binaries with `install.sh` / `install.ps1` on each OS, checks the dashboard answers, uninstalls |
+| `scripts` | shellcheck on `install.sh`, PSScriptAnalyzer on `install.ps1` |
+| `docker` | Builds the image for amd64, arm64 and arm/v7, then starts it with `-fake` and checks the dashboard |
+| `ci-ok` | Passes only if all of the above passed; the required check for merging |
+
+[`vulncheck.yml`](.github/workflows/vulncheck.yml) runs govulncheck on pull requests and weekly. It reports
+known vulnerabilities in Go and dependencies but doesn't block merging.
+
+A `v*` tag runs the same CI checks before [`release.yml`](.github/workflows/release.yml) publishes binaries and the Docker image.
 
 ## Known limitations
 
-- The hop pinger waits for every target each round, so a timeout can skip a tick (~3.5 % of rounds). This smears the handover slot, so the 10× figure is likely an underestimate.
 - The hourly rollup is written to disk but not yet shown on the dashboard.
 - The dish's own drop counter reports ~3 s late relative to the pings.
 
