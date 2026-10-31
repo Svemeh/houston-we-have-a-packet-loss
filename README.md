@@ -40,9 +40,6 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 - **Fake mode** — a synthetic dish that cycles through degraded, obstructed, no-signal and offline states, so the UI can be developed without hardware.
 - **Single binary, no database** — static files are embedded; data is append-only JSON Lines, pruned by atomic rewrite.
 
-![Sky view](docs/sky.png)
-<sub>Sky view: Starlink satellites above the horizon, with the dish's service cone.</sub>
-
 ## Architecture
 
 ```mermaid
