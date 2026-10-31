@@ -36,7 +36,7 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 - **Per-hop pinger** — router (found from the default gateway), dish, Cloudflare and Google pinged in parallel each second, so a loss can be pinned to a segment of the path.
 - **Dish telemetry** — status and outage history from the dish's gRPC API, including fields newer than the published protobufs (decoded by tag from the unknown-field bytes).
 - **Hourly rollup** — loss, RTT p50/p90/p99/max and jitter per target, plus loss bucketed by second within the 15 s satellite slot. Kept forever at ~600 B/hour.
-- **Satellite sky view** (`/sky`) — every Starlink satellite above the horizon, propagated from Celestrak TLEs with SGP4.
+- **Satellite sky view** — on the dashboard: every Starlink satellite above the horizon, propagated from Celestrak TLEs with SGP4.
 - **Fake mode** — a synthetic dish that cycles through degraded, obstructed, no-signal and offline states, so the UI can be developed without hardware.
 - **Single binary, no database** — static files are embedded; data is append-only JSON Lines, pruned by atomic rewrite.
 
@@ -84,7 +84,7 @@ irm https://raw.githubusercontent.com/Svemeh/houston-we-have-a-packet-loss/main/
 ```
 
 The installer downloads the latest release, checks its checksum, sets Houston up to run in the background
-and opens the dashboard at <http://localhost:2101>. Open **Sky View** once to set your location. Run the
+and opens the dashboard at <http://localhost:2101>. Set your location once in the dashboard's **Sky View** card. Run the
 same command again to update.
 
 | | Runs | Data | Needs |
@@ -131,7 +131,7 @@ Quickly test reachability:
 go run . -oneshot             # check dish + internet reachability and exit
 ```
 
-The sky view asks for your location the first time and saves it to `data/settings.json`. To set it
+The dashboard's Sky View card asks for your location the first time and saves it to `data/settings.json`. To set it
 outside the browser, use `HOUSTON_LAT` / `HOUSTON_LON` in the environment or in `.env`
 (see [`.env.example`](.env.example)); those win over the saved one.
 
@@ -154,11 +154,11 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 
 | Route | |
 |---|---|
-| `/` · `/sky` | Dashboard · satellite view |
+| `/` | Dashboard |
 | `/events` · `/pingevents` · `/skyevents` | SSE streams |
 | `/history?range=1h` · `/pinghistory?range=1h` | Downsampled history (`range` = Go duration or `all`) |
 | `/log` · `/pinglog` | Raw JSONL |
-| `/location` | Sky view location: `GET`, or `POST` JSON `{"latitude_deg":…,"longitude_deg":…}` |
+| `/location` | Observer location: `GET`, or `POST` JSON `{"latitude_deg":…,"longitude_deg":…}` |
 
 ## Project layout
 
@@ -173,8 +173,8 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `rollup.go` | Hourly summary with handover-slot bucketing |
 | `logFile.go` | JSONL persistence, pruning, range reads, downsampling |
 | `hub.go` · `server.go` | SSE fan-out and HTTP routes |
-| `sky.go` · `settings.go` | TLE fetch/cache and SGP4 propagation · location saved from the sky view |
-| `static/` | Dashboard and sky view (vanilla JS, canvas charts) |
+| `sky.go` · `settings.go` | TLE fetch/cache and SGP4 propagation · location saved from the dashboard |
+| `static/` | Dashboard (vanilla JS, canvas charts) |
 | `install.sh` · `install.ps1` | Installers (macOS/Linux · Windows) |
 
 ## Releasing

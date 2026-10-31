@@ -16,26 +16,16 @@
   ];
 
   const canvas = document.getElementById("sky-scope");
-  // The scope is embedded on the dashboard too, with only some of these
-  // readouts beside it, so every element here is optional and the canvas is
-  // the only thing this file insists on.
   if (!canvas) return;
   const drawing = canvas.getContext("2d");
 
   const elements = {
-    clock: document.getElementById("sky-clock"),
     strip: document.getElementById("sky-strip"),
     headline: document.getElementById("sky-headline"),
     subtext: document.getElementById("sky-subtext"),
     inCone: document.getElementById("count-in-cone"),
     above: document.getElementById("count-above"),
     coneNote: document.getElementById("cone-note"),
-    elementAge: document.getElementById("element-age"),
-    // Its own id: on the dashboard the footer indicator belongs to the
-    // telemetry stream, and two scripts writing one element is a race.
-    connection: document.getElementById("sky-connection"),
-    connectionText: document.getElementById("sky-connection-text"),
-    // The location panel is on the sky page only.
     locationPanel: document.getElementById("location-panel"),
     useMyLocation: document.getElementById("use-my-location"),
     geolocationHint: document.getElementById("geolocation-hint"),
@@ -286,13 +276,6 @@
 
   // ---- Readouts --------------------------------------------------------
 
-  const formatAge = (ageSeconds) => {
-    if (ageSeconds < 0) return "none yet";
-    const hours = Math.floor(ageSeconds / 3600);
-    if (hours < 1) return `${Math.floor(ageSeconds / 60)}m old`;
-    return `${hours}h old`;
-  };
-
   const setStripState = (state) => {
     if (!elements.strip) return;
     elements.strip.classList.remove("state-nominal", "state-caution", "state-alarm");
@@ -314,18 +297,14 @@
     const aboveHorizon = (snapshot.objects || []).length;
     setText(elements.inCone, snapshot.in_cone_count);
     setText(elements.above, aboveHorizon);
-    setText(elements.clock, new Date(snapshot.timestamp).toLocaleTimeString());
 
     setText(elements.coneNote, describeCone(snapshot));
     if (elements.coneNote) elements.coneNote.classList.toggle("is-assumed", Boolean(snapshot.cone_is_assumed));
 
-    setText(elements.elementAge, formatAge(snapshot.elements_age_s));
-    if (elements.elementAge) elements.elementAge.classList.toggle("is-alarm", Boolean(snapshot.elements_are_stale));
-
     if (!snapshot.location_set) {
       setStripState("state-caution");
       setText(elements.headline, "NO LOCATION SET");
-      setText(elements.subtext, elements.locationPanel ? "set it below" : "set it on sky view");
+      setText(elements.subtext, "set it below");
     } else if (snapshot.tracked_count === 0) {
       setStripState("state-caution");
       setText(elements.headline, "NO ELEMENTS LOADED");
@@ -344,18 +323,11 @@
     render();
   };
 
-  const setConnection = (state, text) => {
-    if (!elements.connection) return;
-    elements.connection.classList.remove("is-live", "is-lost");
-    if (state) elements.connection.classList.add(state);
-    setText(elements.connectionText, text);
-  };
-
   // ---- Location --------------------------------------------------------
-  // Until the server knows where the dish is, the sky page asks. The browser's
+  // Until the server knows where the dish is, the sky card asks. The browser's
   // own location only works on a secure page (http://localhost counts; a LAN
   // address like http://192.168.1.20:2101 doesn't), so typing it in is always
-  // offered too. On the dashboard there's no panel and this all sits idle.
+  // offered too.
 
   let locationSource = "";
 
@@ -368,7 +340,10 @@
     if (!elements.locationPanel) return;
     elements.locationPanel.hidden = !visible;
     // Only a location saved from here can be changed from here.
-    if (elements.changeLocation) elements.changeLocation.hidden = visible || locationSource !== "settings";
+    if (elements.changeLocation) {
+      elements.changeLocation.hidden = locationSource !== "settings";
+      elements.changeLocation.textContent = visible ? "Cancel" : "Change location";
+    }
   };
 
   const applyLocation = (location) => {
@@ -445,7 +420,7 @@
     });
 
     if (elements.changeLocation) {
-      elements.changeLocation.addEventListener("click", () => showLocationPanel(true));
+      elements.changeLocation.addEventListener("click", () => showLocationPanel(elements.locationPanel.hidden));
     }
   };
 
@@ -454,8 +429,6 @@
   const connect = () => {
     const stream = new EventSource(SKY_EVENTS_URL);
 
-    stream.onopen = () => setConnection("is-live", "Live");
-
     stream.onmessage = (event) => {
       try {
         applySnapshot(JSON.parse(event.data));
@@ -463,9 +436,6 @@
         console.error("bad sky snapshot", error);
       }
     };
-
-    // EventSource reconnects on its own; just reflect the state.
-    stream.onerror = () => setConnection("is-lost", "Reconnecting…");
   };
 
   window.addEventListener("resize", () => {

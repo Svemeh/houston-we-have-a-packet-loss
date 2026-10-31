@@ -499,7 +499,7 @@ header {
   height: 100%;
 }
 
-/* The sky scope's legend, shared by the sky page and the dashboard panel. */
+/* The sky scope's legend. */
 .scope-legend {
   display: flex;
   gap: 18px;
@@ -550,7 +550,7 @@ header {
   color: var(--caution);
 }
 
-/* The sky page's alarm strip, shrunk to sit inside the dashboard panel. It
+/* The alarm strip, shrunk to sit inside the sky card. It
    keeps the alarm-dot/alarm-message classes so the state colours still apply. */
 .sky-strip {
   display: flex;
@@ -584,6 +584,124 @@ header {
 
 .sky-square {
   margin-bottom: 8px;
+}
+
+/* ---- Location panel ----------------------------------------------------
+   Shown in the sky card until the server knows where the dish is. */
+
+.location-panel {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--caution);
+  border-radius: 3px;
+
+  padding: 12px 14px;
+  margin-bottom: 8px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.location-panel[hidden] {
+  display: none;
+}
+
+.location-title {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--caution);
+}
+
+.location-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--label);
+}
+
+.location-actions,
+.location-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.location-hint,
+.location-status {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--label-dim);
+}
+
+.location-status:empty {
+  display: none;
+}
+
+.location-status.is-error {
+  color: var(--alarm);
+}
+
+.location-form label {
+  flex: 1 1 7em;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--label-dim);
+}
+
+.location-form input {
+  width: 100%;
+  padding: 6px 8px;
+
+  background: var(--panel-sunken);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.location-form input:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.range-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Sits in the sky card's header and looks like its range label. */
+.location-toggle {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 1px dotted var(--edge);
+  padding: 0 0 1px;
+  cursor: pointer;
+
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--label-dim);
+}
+
+.location-toggle:hover {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.location-toggle[hidden] {
+  display: none;
 }
 
 /* ---- Incidents --------------------------------------------------------- */

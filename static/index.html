@@ -113,12 +113,34 @@
         <div class="scope is-sky">
           <div class="scope-head">
             <span class="label">Sky View</span>
+            <button type="button" class="location-toggle" id="change-location" hidden>Change location</button>
           </div>
           <div class="sky-strip" id="sky-strip">
             <span class="alarm-dot"></span>
             <span class="alarm-message" id="sky-headline">AWAITING ELEMENTS…</span>
             <span class="alarm-subtext" id="sky-subtext">standing by</span>
           </div>
+          <section class="location-panel" id="location-panel" hidden>
+            <div class="location-title">Where is your dish?</div>
+            <p class="location-note">
+              The sky view needs a position to work out what's overhead. Two decimals (about 1 km) is plenty.
+              It is saved on this machine only.
+            </p>
+            <div class="location-actions">
+              <button type="button" class="range-button is-selected" id="use-my-location">Use my location</button>
+              <span class="location-hint" id="geolocation-hint" hidden></span>
+            </div>
+            <form class="location-form" id="location-form">
+              <label>Latitude
+                <input id="latitude-input" type="number" step="any" min="-90" max="90" placeholder="-90 to 90" required>
+              </label>
+              <label>Longitude
+                <input id="longitude-input" type="number" step="any" min="-180" max="180" placeholder="-180 to 180" required>
+              </label>
+              <button type="submit" class="range-button">Save</button>
+            </form>
+            <div class="location-status" id="location-status" role="status"></div>
+          </section>
           <div class="sky-square">
             <canvas id="sky-scope"></canvas>
           </div>
