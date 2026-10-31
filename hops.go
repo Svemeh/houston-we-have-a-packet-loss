@@ -47,9 +47,6 @@ func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSam
 // Run pings until ctx is cancelled. Like Pinger.Run, errors are logged per hop
 // when they start and when they clear.
 func (hopPinger *HopPinger) Run(ctx context.Context) {
-	ticker := time.NewTicker(PingInterval)
-	defer ticker.Stop()
-
 	lastErrors := make(map[string]string, len(hopPinger.pingers))
 
 	pingRound := func() {
@@ -74,15 +71,7 @@ func (hopPinger *HopPinger) Run(ctx context.Context) {
 		}
 	}
 
-	pingRound()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			pingRound()
-		}
-	}
+	runEverySecondRandomPhase(ctx, "hops", pingRound)
 }
 
 // PingAll sends one echo to every hop at once and waits for all of them.

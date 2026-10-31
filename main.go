@@ -29,6 +29,7 @@ func main() {
 	routerAddress := flag.String("router", RouterAuto, "LAN router to ping: an IP, \"auto\" (default gateway) or \"none\"")
 	outageLogPath := flag.String("outage-log", DefaultOutageLogPath, "dish outage log file (JSONL)")
 	rollupLogPath := flag.String("rollup-log", DefaultRollupLogPath, "hourly hop summary log file (JSONL)")
+	handoverLogPath := flag.String("handover-log", DefaultHandoverLogPath, "handover burst log file (JSONL)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -82,6 +83,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer hopsLogFile.Close()
+
+	handoverLogFile, err := OpenLogFile[HandoverSample](*handoverLogPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ opening handover log file %q: %v\n", *handoverLogPath, err)
+		os.Exit(1)
+	}
+	defer handoverLogFile.Close()
 
 	outageLogFile, err := OpenLogFile[DishOutage](*outageLogPath)
 	if err != nil {
@@ -145,7 +153,7 @@ func main() {
 	defer stopSignalWatch()
 
 	go pollLoop(ctx, collector, hub, logFile, tracker)
-	go pruneLoop(ctx, logFile, pingLogFile, hopsLogFile, outageLogFile)
+	go pruneLoop(ctx, logFile, pingLogFile, hopsLogFile, outageLogFile, handoverLogFile)
 	go tracker.Run(ctx)
 	if !*noPing {
 		go NewPinger(*pingTarget, pingHub, pingLogFile).Run(ctx)
@@ -156,7 +164,8 @@ func main() {
 			HopLocalTargets = []string{router, DishHopTarget}
 		}
 		go NewHopPinger(hopTargets(router), hopsHub, hopsLogFile).Run(ctx)
-		go rollupLoop(ctx, *hopsLogPath, *logPath, rollupLogFile, *rollupLogPath)
+		go NewHandoverProber(HandoverBurstTarget, handoverLogFile).Run(ctx)
+		go rollupLoop(ctx, *hopsLogPath, *logPath, *handoverLogPath, rollupLogFile, *rollupLogPath)
 	}
 	if outageSource, ok := collector.(OutageSource); ok {
 		go outageLoop(ctx, outageSource, outageLogFile, *outageLogPath)
