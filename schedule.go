@@ -7,14 +7,7 @@ import (
 	"time"
 )
 
-// runEverySecondRandomPhase calls fn once per wall-clock second, at a random
-// point inside that second, until ctx is cancelled.
-//
-// A time.Ticker locks the send time to one sub-second phase that only drifts
-// with the clock, so a 1/s pinger can miss the ~200 ms handover window for
-// days and every loss and latency figure ends up biased by where that phase
-// happens to sit. A fresh random phase each second turns the samples into an
-// unbiased time average, the same today as after next week's restart.
+// runEverySecondRandomPhase calls fn once per wall-clock second, at a random point in that second.
 func runEverySecondRandomPhase(ctx context.Context, name string, fn func()) {
 	scheduler := secondScheduler{
 		now:   time.Now,
@@ -25,12 +18,10 @@ func runEverySecondRandomPhase(ctx context.Context, name string, fn func()) {
 	scheduler.run(ctx, fn)
 }
 
-// secondScheduler is runEverySecondRandomPhase with its clock, sleep and
-// randomness swappable, so tests can run hours of schedule in microseconds.
 type secondScheduler struct {
 	now   func() time.Time
-	sleep func(ctx context.Context, wait time.Duration) bool // false when ctx was cancelled
-	phase func() time.Duration                               // in [0, 1s)
+	sleep func(ctx context.Context, wait time.Duration) bool
+	phase func() time.Duration
 	skips skipReport
 }
 
@@ -39,8 +30,6 @@ func (scheduler *secondScheduler) run(ctx context.Context, fn func()) {
 	for {
 		now := scheduler.now()
 		if target.Sub(now) > SchedulerResyncAfter {
-			// The wall clock was stepped back: waiting for the old target
-			// would stall pinging for as long as the step.
 			second, target = scheduler.anchor(now)
 			continue
 		}
@@ -50,13 +39,11 @@ func (scheduler *secondScheduler) run(ctx context.Context, fn func()) {
 
 		now = scheduler.now()
 		if now.Sub(target) > SchedulerResyncAfter {
-			// The machine slept or stalled. Start again from the current
-			// second rather than replaying or counting the gap.
 			second, target = scheduler.anchor(now)
 			continue
 		}
 		if now.Before(target) {
-			continue // woke early by wall-clock time; wait the rest
+			continue
 		}
 
 		fn()
@@ -66,7 +53,7 @@ func (scheduler *secondScheduler) run(ctx context.Context, fn func()) {
 
 // anchor picks the first second whose send time is still ahead of now.
 func (scheduler *secondScheduler) anchor(now time.Time) (second, target time.Time) {
-	second = now.Truncate(time.Second) // absolute seconds, independent of time zone
+	second = now.Truncate(time.Second)
 	target = second.Add(scheduler.phase())
 	if target.Before(now) {
 		second = second.Add(time.Second)
@@ -75,13 +62,11 @@ func (scheduler *secondScheduler) anchor(now time.Time) (second, target time.Tim
 	return second, target
 }
 
-// next moves on from the second that just ran. A second whose send time went
-// by while fn was still running is skipped, never given a new phase: redrawing
-// would push late phases into exactly the seconds after a slow round.
+// next returns the next second whose send time hasn't passed, skipping any that have.
 func (scheduler *secondScheduler) next(second time.Time) (time.Time, time.Time) {
 	now := scheduler.now()
 	if now.Sub(second) > SchedulerResyncAfter {
-		return scheduler.anchor(now) // fn stalled far longer than any timeout allows
+		return scheduler.anchor(now)
 	}
 	for skipped := 0; ; skipped++ {
 		second = second.Add(time.Second)
@@ -95,8 +80,7 @@ func (scheduler *secondScheduler) next(second time.Time) (time.Time, time.Time) 
 
 func randomPhase() time.Duration { return rand.N(time.Second) }
 
-// sleepContext waits for the given duration or until ctx is cancelled, and
-// reports whether it ran the full wait.
+// sleepContext waits for wait or until ctx is cancelled; false if cancelled
 func sleepContext(ctx context.Context, wait time.Duration) bool {
 	if wait <= 0 {
 		return ctx.Err() == nil
@@ -111,8 +95,6 @@ func sleepContext(ctx context.Context, wait time.Duration) bool {
 	}
 }
 
-// skipReport counts skipped runs and logs the total at most once per
-// SkipReportInterval, so a lossy evening can't flood the log.
 type skipReport struct {
 	name        string
 	unit        string

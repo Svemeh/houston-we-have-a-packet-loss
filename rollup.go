@@ -34,10 +34,6 @@ type HopRollup struct {
 	DishDropSlots   []int `json:"dish_drop_slots"`
 	DishSlotSamples []int `json:"dish_slot_samples"`
 
-	// From handovers.jsonl: one burst per handover. Bursts with local send
-	// errors are counted apart and left out of the rest, since their loss is
-	// this machine's link, not the handover. Loss duration per burst is
-	// last_lost_ms - first_lost_ms + step_ms, over bursts with loss.
 	HandoverBursts          int     `json:"handover_bursts"`
 	HandoverBurstsWithLoss  int     `json:"handover_bursts_with_loss"`
 	HandoverLostPings       int     `json:"handover_lost_pings"`
@@ -45,10 +41,6 @@ type HopRollup struct {
 	HandoverLossMsP90       float64 `json:"handover_loss_ms_p90"`
 	HandoverBurstsSendError int     `json:"handover_bursts_send_error"`
 
-	// Sampling is SamplingRandomPhase when the hour's 1/s samples provably
-	// came from the random-phase scheduler, SamplingUnknown otherwise. Lines
-	// from before the change don't have it. Only random-phase hours are
-	// comparable for overall loss and latency.
 	Sampling string `json:"sampling"`
 }
 
@@ -57,8 +49,6 @@ const (
 	SamplingUnknown     = "unknown"
 )
 
-// processStart is when this process began; any hour starting after it was
-// sampled entirely by this binary.
 var processStart = time.Now()
 
 func (rollup HopRollup) SampleTime() time.Time { return rollup.HourStart }
@@ -123,7 +113,6 @@ func rollupLoop(ctx context.Context, hopsLogPath, dishLogPath, handoverLogPath s
 			dishSamples = nil
 		}
 
-		// Also optional: without it the handover burst fields stay zero.
 		handovers, err := LoadSamplesSince[HandoverSample](handoverLogPath, wanted[0])
 		if err != nil {
 			log.Printf("rollup: could not read %s: %v", handoverLogPath, err)
@@ -256,7 +245,7 @@ func addHandoverBursts(rollup *HopRollup, handovers []HandoverSample, hourStart 
 			continue
 		}
 		if !burst.Boundary.Before(hourEnd) {
-			break // bursts are chronological
+			break
 		}
 		if burst.Errors > 0 {
 			rollup.HandoverBurstsSendError++

@@ -8,34 +8,21 @@ import (
 	"time"
 )
 
-// HandoverSample is one burst of echoes around one satellite handover.
-//
-// The JSON tags are the on-disk log format (handovers.jsonl). Offsets are
-// milliseconds relative to Boundary, taken from each echo's real send time.
 type HandoverSample struct {
-	Boundary  time.Time `json:"boundary"` // the :12/:27/:42/:57 instant
-	Target    string    `json:"target"`
-	StepMs    int       `json:"step_ms"`
-	OffsetsMs []int     `json:"offsets_ms"`
-	RTTMs     []float64 `json:"rtt_ms"` // -1 when lost
-	Lost      int       `json:"lost"`
-	// Errors counts echoes that never left this machine (e.g. "no route to
-	// host"). They are in Lost too; a burst with errors says more about the
-	// local link than about the handover.
-	Errors          int  `json:"errors,omitempty"`
-	FirstLostMs     *int `json:"first_lost_ms"`
-	LastLostMs      *int `json:"last_lost_ms"`
-	LossReachesEdge bool `json:"loss_reaches_edge"` // first or last echo lost: the window may be wider than the burst
+	Boundary        time.Time `json:"boundary"` // 12:27:42:57
+	Target          string    `json:"target"`
+	StepMs          int       `json:"step_ms"`
+	OffsetsMs       []int     `json:"offsets_ms"`
+	RTTMs           []float64 `json:"rtt_ms"`
+	Lost            int       `json:"lost"`
+	Errors          int       `json:"errors,omitempty"`
+	FirstLostMs     *int      `json:"first_lost_ms"`
+	LastLostMs      *int      `json:"last_lost_ms"`
+	LossReachesEdge bool      `json:"loss_reaches_edge"`
 }
 
 func (sample HandoverSample) SampleTime() time.Time { return sample.Boundary }
 
-// HandoverProber fires one burst of echoes around every Starlink handover.
-//
-// Handovers are global and fixed to the wall clock (UTC), so the prober is too:
-// it plans each burst from the unix time, not from a ticker. A burst it can't
-// start on time is dropped whole, because a partial burst would report a
-// narrower loss window than the one that happened.
 type HandoverProber struct {
 	target string
 	ping   func(ctx context.Context) PingSample
@@ -65,9 +52,6 @@ func NewHandoverProber(target string, logFile *LogFile[HandoverSample]) *Handove
 // Run fires bursts until ctx is cancelled.
 func (prober *HandoverProber) Run(ctx context.Context) {
 	for {
-		// The next boundary whose burst hasn't started yet. Picked from the
-		// current time every round, so waking from sleep never replays a
-		// backlog of missed handovers.
 		boundary := nextHandoverBoundary(prober.now().Add(HandoverBurstBefore))
 		burstStart := boundary.Add(-HandoverBurstBefore)
 		if !prober.sleep(ctx, burstStart.Sub(prober.now())) {
@@ -76,7 +60,7 @@ func (prober *HandoverProber) Run(ctx context.Context) {
 
 		lateBy := prober.now().Sub(burstStart)
 		if lateBy < -HandoverBurstStep {
-			continue // woke early: the wall clock was stepped back; plan again
+			continue
 		}
 		if lateBy > HandoverBurstMaxLateWake {
 			prober.skips.add(prober.now(), 1)
@@ -85,16 +69,14 @@ func (prober *HandoverProber) Run(ctx context.Context) {
 
 		sample, ok := prober.burst(ctx, boundary)
 		if !ok {
-			return // cancelled mid-burst: drop it rather than log a half burst
+			return
 		}
 		prober.emit(sample)
 		prober.skips.add(prober.now(), 0)
 	}
 }
 
-// burst sends one echo every HandoverBurstStep from HandoverBurstBefore ahead
-// of the boundary to HandoverBurstAfter past it. Each echo runs on its own, so
-// a lost one waiting out its timeout doesn't hold back the ones after it.
+// burst sends one echo every HandoverBurstStep around boundary.
 func (prober *HandoverProber) burst(ctx context.Context, boundary time.Time) (HandoverSample, bool) {
 	count := handoverBurstEchoes()
 	burstStart := boundary.Add(-HandoverBurstBefore)
@@ -124,13 +106,11 @@ func handoverBurstEchoes() int {
 	return int((HandoverBurstBefore+HandoverBurstAfter)/HandoverBurstStep) + 1
 }
 
-// nextHandoverBoundary returns the first handover strictly after t: the next
-// unix second where seconds % HandoverSlotSeconds == HandoverBoundaryOffset.
-// Unix seconds are UTC by definition, so time.Local plays no part.
+// nextHandoverBoundary returns the first handover strictly after t.
 func nextHandoverBoundary(t time.Time) time.Time {
-	unixSeconds := t.Unix() // floor for any time after 1970
+	unixSeconds := t.Unix()
 	sinceBoundary := ((unixSeconds-HandoverBoundaryOffset)%HandoverSlotSeconds + HandoverSlotSeconds) % HandoverSlotSeconds
-	lastBoundary := unixSeconds - sinceBoundary // at or before t
+	lastBoundary := unixSeconds - sinceBoundary
 	return time.Unix(lastBoundary+HandoverSlotSeconds, 0)
 }
 
