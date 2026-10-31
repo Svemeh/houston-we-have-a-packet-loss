@@ -268,18 +268,29 @@ func addHandoverBursts(rollup *HopRollup, handovers []HandoverSample, hourStart 
 			continue
 		}
 		rollup.HandoverBurstsWithLoss++
-		lossDurations = append(lossDurations, float64(*burst.LastLostMs-*burst.FirstLostMs+burst.StepMs))
+		lossDurations = append(lossDurations, float64(longestLossRunMs(burst)))
 	}
 	sort.Float64s(lossDurations)
 	rollup.HandoverLossMsP50 = percentile(lossDurations, 0.50)
 	rollup.HandoverLossMsP90 = percentile(lossDurations, 0.90)
 }
 
+// longestLossRunMs is the longest run of consecutive lost echoes, in ms.
+func longestLossRunMs(burst HandoverSample) int {
+	longest, run := 0, 0
+	for _, rtt := range burst.RTTMs {
+		if rtt >= 0 {
+			run = 0
+			continue
+		}
+		run++
+		longest = max(longest, run)
+	}
+	return longest * burst.StepMs
+}
+
 // samplingMode reports SamplingRandomPhase only when it can be proven: the
-// hour began after this process did, or a burst fired at the hour's first
-// handover, so the random-phase code was running from the top of the hour.
-// The first rollup after an upgrade still summarises older fixed-phase hours
-// from hops.jsonl, and those must not pass as comparable.
+// hour began after this process did, or a burst fired at the hour's first handover.
 func samplingMode(hourStart, started time.Time, handovers []HandoverSample) string {
 	if !hourStart.Before(started) {
 		return SamplingRandomPhase

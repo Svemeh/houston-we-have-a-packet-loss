@@ -205,15 +205,15 @@ func TestAddHandoverBursts(t *testing.T) {
 		burst(at(-3), -100),            // previous hour: ignored
 		burst(at(12), -120, -100, -80), // 60 ms
 		burst(at(27)),                  // clean
-		burst(at(42), -100),            // 20 ms
+		burst(at(42), -100, 880),       // 20 ms: a stray loss at the edge isn't part of the run
 		sendError,                      // this machine's link: counted apart
 		burst(at(3612), -100),          // next hour: ignored
 	}
 
 	var rollup HopRollup
 	addHandoverBursts(&rollup, handovers, hourStart)
-	if rollup.HandoverBursts != 3 || rollup.HandoverBurstsWithLoss != 2 || rollup.HandoverLostPings != 4 {
-		t.Errorf("bursts/with loss/lost = %d/%d/%d, want 3/2/4", rollup.HandoverBursts, rollup.HandoverBurstsWithLoss, rollup.HandoverLostPings)
+	if rollup.HandoverBursts != 3 || rollup.HandoverBurstsWithLoss != 2 || rollup.HandoverLostPings != 5 {
+		t.Errorf("bursts/with loss/lost = %d/%d/%d, want 3/2/5", rollup.HandoverBursts, rollup.HandoverBurstsWithLoss, rollup.HandoverLostPings)
 	}
 	if rollup.HandoverLossMsP50 != 60 || rollup.HandoverLossMsP90 != 60 {
 		t.Errorf("loss ms p50/p90 = %v/%v, want 60/60", rollup.HandoverLossMsP50, rollup.HandoverLossMsP90)
