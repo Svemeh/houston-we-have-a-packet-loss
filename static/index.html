@@ -6,84 +6,139 @@
   <title>Houston, We Have a Packet Loss</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/dashboard.js" defer></script>
+  <script src="/sky.js" defer></script>
 </head>
 
 <body>
   <div class="console">
 
-    <header>
-      <div class="callsign">
-        <h1>HOUSTON</h1>
-        <span class="callsign-tag">We Have a Packet Loss</span>
-      </div>
-      <div class="uptime-clock">
-        <div class="status-value tabular-num" id="uptime-clock">—:—:—:—</div>
-        <div class="label">Time Since Grounded</div>
-      </div>
-    </header>
+    <div class="masthead">
 
-    <div class="alarm-strip" id="alarm-strip">
-      <span class="alarm-dot"></span>
-      <span class="alarm-message" id="alarm-message">AWAITING TELEMETRY…</span>
-      <span class="alarm-subtext" id="alarm-subtext">standing by</span>
+      <header>
+        <div class="callsign">
+          <h1>HOUSTON</h1>
+          <span class="callsign-tag">We Have a Packet Loss</span>
+        </div>
+        <div class="uptime-clock">
+          <div class="status-value tabular-num" id="uptime-clock">—:—:—:—</div>
+          <div class="label">Time Since Grounded</div>
+        </div>
+      </header>
+
+      <div class="alarm-strip" id="alarm-strip">
+        <span class="alarm-dot"></span>
+        <span class="alarm-message" id="alarm-message">AWAITING TELEMETRY…</span>
+        <span class="alarm-subtext" id="alarm-subtext">standing by</span>
+      </div>
+
+      <!-- What the dish says about itself. -->
+      <div class="tiles is-dish">
+        <div class="cell" id="cell-latency">
+          <div class="label">Ping <span class="label-note">to PoP</span></div>
+          <div class="reading"><span class="reading-value" id="value-latency">—</span><span class="reading-unit">ms</span></div>
+        </div>
+        <div class="cell" id="cell-download">
+          <div class="label">Download</div>
+          <div class="reading"><span class="reading-value" id="value-download">—</span><span class="reading-unit">Mbps</span></div>
+        </div>
+        <div class="cell" id="cell-upload">
+          <div class="label">Upload</div>
+          <div class="reading"><span class="reading-value" id="value-upload">—</span><span class="reading-unit">Mbps</span></div>
+        </div>
+        <div class="cell" id="cell-packet-loss">
+          <div class="label">Packet Loss <span class="label-note">dish</span></div>
+          <div class="reading"><span class="reading-value" id="value-packet-loss">—</span><span class="reading-unit">%</span></div>
+        </div>
+      </div>
+
+      <!-- What this machine measures for itself, and what the history says. -->
+      <div class="tiles is-measured">
+        <div class="cell" id="cell-machine-to-internet-ping">
+          <div class="label">To Internet <span class="label-note" id="machine-to-internet-ping-target"></span></div>
+          <div class="reading"><span class="reading-value" id="value-machine-to-internet-ping">—</span><span class="reading-unit">ms</span></div>
+        </div>
+        <div class="cell" id="cell-machine-to-internet-loss">
+          <div class="label">Loss <span class="label-note">last 60s</span></div>
+          <div class="reading"><span class="reading-value" id="value-machine-to-internet-loss">—</span><span class="reading-unit">%</span></div>
+        </div>
+        <div class="cell" id="cell-jitter">
+          <div class="label">Jitter p99 <span class="label-note">last hour</span></div>
+          <div class="reading"><span class="reading-value" id="value-jitter">—</span><span class="reading-unit">ms</span></div>
+        </div>
+        <div class="cell" id="cell-bad-seconds">
+          <div class="label">Bad Seconds <span class="label-note">24h</span></div>
+          <div class="reading"><span class="reading-value" id="value-bad-seconds">—</span><span class="reading-unit">/hr</span></div>
+        </div>
+        <div class="cell" id="cell-handover">
+          <div class="label">Handover <span class="label-note">of all loss</span></div>
+          <div class="reading"><span class="reading-value" id="value-handover">—</span><span class="reading-unit">%</span></div>
+        </div>
+      </div>
+
+      <div class="range-bar" id="range-bar" role="group" aria-label="Chart time range"></div>
+
     </div>
 
-    <div class="readouts">
-      <div class="cell" id="cell-latency">
-        <div class="label">Ping</div>
-        <div class="reading"><span class="reading-value" id="value-latency">—</span><span class="reading-unit">ms</span></div>
+    <div class="body">
+      <div class="body-main">
+        <div class="scope">
+          <div class="scope-head"><span class="label">Ping</span><span class="scope-range-label" id="chart-range-latency"></span></div>
+          <canvas id="chart-latency"></canvas>
+        </div>
+        <div class="scope">
+          <div class="scope-head"><span class="label">Packet Loss</span><span class="scope-range-label" id="chart-range-packet-loss"></span></div>
+          <canvas id="chart-packet-loss"></canvas>
+        </div>
+        <div class="scope">
+          <div class="scope-head"><span class="label">Download</span><span class="scope-range-label" id="chart-range-download"></span></div>
+          <canvas id="chart-download"></canvas>
+        </div>
+        <div class="scope">
+          <div class="scope-head"><span class="label">Upload</span><span class="scope-range-label" id="chart-range-upload"></span></div>
+          <canvas id="chart-upload"></canvas>
+        </div>
+        <div class="scope">
+          <div class="scope-head"><span class="label">Machine-to-Internet Ping</span><span class="scope-range-label" id="chart-range-machine-to-internet-ping"></span></div>
+          <canvas id="chart-machine-to-internet-ping"></canvas>
+        </div>
+        <div class="scope">
+          <div class="scope-head"><span class="label">Machine-to-Internet Packet Loss</span><span class="scope-range-label" id="chart-range-machine-to-internet-loss"></span></div>
+          <canvas id="chart-machine-to-internet-loss"></canvas>
+        </div>
       </div>
-      <div class="cell" id="cell-download">
-        <div class="label">Download</div>
-        <div class="reading"><span class="reading-value" id="value-download">—</span><span class="reading-unit">Mbps</span></div>
-      </div>
-      <div class="cell" id="cell-upload">
-        <div class="label">Upload</div>
-        <div class="reading"><span class="reading-value" id="value-upload">—</span><span class="reading-unit">Mbps</span></div>
-      </div>
-      <div class="cell" id="cell-packet-loss">
-        <div class="label">Packet Loss</div>
-        <div class="reading"><span class="reading-value" id="value-packet-loss">—</span><span class="reading-unit">%</span></div>
-      </div>
-    </div>
 
-    <div class="readouts is-machine-to-internet">
-      <div class="cell" id="cell-machine-to-internet-ping">
-        <div class="label">Machine-to-Internet Ping <span class="label-note" id="machine-to-internet-ping-target"></span></div>
-        <div class="reading"><span class="reading-value" id="value-machine-to-internet-ping">—</span><span class="reading-unit">ms</span></div>
-      </div>
-      <div class="cell" id="cell-machine-to-internet-loss">
-        <div class="label">Machine-to-Internet Packet Loss <span class="label-note">last 60s</span></div>
-        <div class="reading"><span class="reading-value" id="value-machine-to-internet-loss">—</span><span class="reading-unit">%</span></div>
-      </div>
-    </div>
+      <!-- The sky scope takes the column's width; the incident list takes
+           whatever height is left beside the charts and scrolls inside it. -->
+      <div class="body-side">
+        <div class="scope is-sky">
+          <div class="scope-head">
+            <span class="label">Sky View</span>
+          </div>
+          <div class="sky-strip" id="sky-strip">
+            <span class="alarm-dot"></span>
+            <span class="alarm-message" id="sky-headline">AWAITING ELEMENTS…</span>
+            <span class="alarm-subtext" id="sky-subtext">standing by</span>
+          </div>
+          <div class="sky-square">
+            <canvas id="sky-scope"></canvas>
+          </div>
+          <div class="scope-legend">
+            <span class="legend-item"><span class="legend-swatch is-in-cone"></span><span class="tabular-num" id="count-in-cone">—</span> in cone</span>
+            <span class="legend-item"><span class="legend-swatch is-above"></span><span class="tabular-num" id="count-above">—</span> above horizon</span>
+          </div>
+          <div class="sky-note" id="cone-note">—</div>
+        </div>
 
-    <div class="range-bar" id="range-bar" role="group" aria-label="Chart time range"></div>
-
-    <div class="scopes">
-      <div class="scope">
-        <div class="scope-head"><span class="label">Ping</span><span class="scope-range-label" id="chart-range-latency"></span></div>
-        <canvas id="chart-latency"></canvas>
-      </div>
-      <div class="scope">
-        <div class="scope-head"><span class="label">Packet Loss</span><span class="scope-range-label" id="chart-range-packet-loss"></span></div>
-        <canvas id="chart-packet-loss"></canvas>
-      </div>
-      <div class="scope">
-        <div class="scope-head"><span class="label">Download</span><span class="scope-range-label" id="chart-range-download"></span></div>
-        <canvas id="chart-download"></canvas>
-      </div>
-      <div class="scope">
-        <div class="scope-head"><span class="label">Upload</span><span class="scope-range-label" id="chart-range-upload"></span></div>
-        <canvas id="chart-upload"></canvas>
-      </div>
-      <div class="scope">
-        <div class="scope-head"><span class="label">Machine-to-Internet Ping</span><span class="scope-range-label" id="chart-range-machine-to-internet-ping"></span></div>
-        <canvas id="chart-machine-to-internet-ping"></canvas>
-      </div>
-      <div class="scope">
-        <div class="scope-head"><span class="label">Machine-to-Internet Packet Loss</span><span class="scope-range-label" id="chart-range-machine-to-internet-loss"></span></div>
-        <canvas id="chart-machine-to-internet-loss"></canvas>
+        <div class="scope is-list">
+          <div class="scope-head">
+            <span class="label">Incidents</span>
+            <span class="scope-range-label" id="incident-count"></span>
+          </div>
+          <div class="incident-filter" id="incident-filter" role="group" aria-label="Incident kind"></div>
+          <div class="incident-list" id="incident-list">
+            <p class="incident-empty">Loading…</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -109,7 +164,7 @@
     <footer>
       <div class="footer-left">
         <span>HOUSTON, WE HAVE a PACKET LOSS</span>
-        <a href="/log" target="_blank" rel="noopener" class="raw-log-link is-filename" title="Open the raw JSONL telemetry log">dishToPop.jsonl</a><a href="/pinglog" target="_blank" rel="noopener" class="raw-log-link is-filename" title="Open the raw JSONL machine-to-internet ping log">machineToInternet.jsonl</a><a href="/sky" class="raw-log-link">Sky View</a>
+        <a href="/log" target="_blank" rel="noopener" class="raw-log-link is-filename" title="Open the raw JSONL telemetry log">dishToPop.jsonl</a><a href="/pinglog" target="_blank" rel="noopener" class="raw-log-link is-filename" title="Open the raw JSONL machine-to-internet ping log">machineToInternet.jsonl</a><a href="/hopslog" target="_blank" rel="noopener" class="raw-log-link is-filename" title="Open the raw JSONL per-hop ping log">hops.jsonl</a>
       </div>
       <span class="connection-status" id="connection-status"><span class="connection-dot"></span><span id="connection-text">Connecting…</span></span>
     </footer>

@@ -1,16 +1,21 @@
 :root {
-  --bg: #0e1216;
+  --page-pad: clamp(14px, 3vw, 32px);
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+:root {
+  --desk: #0f1722;
   --panel: #161d26;
   --panel-sunken: #121822;
   --edge: #232e3b;
   --grid: #1b2531;
+  --control: #2a3747;
 
-  --chart-latency: #ffd50a;
-  --chart-packet-loss: #e5455c;
-  --chart-download: #00c9c0;
-  --chart-upload: #b75cf0;
-  --chart-machine-to-internet-ping: #f5873d;
-  --chart-machine-to-internet-loss: #ff7aa2;
+  --text: #dfe7ef;
+  --readout: #f5b740;
+  --label: #8a97a6;
+  --label-dim: #586675;
 
   --amber: #f5b740;
   --amber-dim: #8a6d33;
@@ -18,13 +23,100 @@
   --caution: #f5b740;
   --alarm: #e5533d;
 
-  --label: #8a97a6;
-  --label-dim: #586675;
-
-  --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
-
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --chart-latency: #ffd50a;
+  --chart-packet-loss: #e5455c;
+  --chart-download: #00c9c0;
+  --chart-upload: #b75cf0;
+  --chart-machine-to-internet-ping: #f5873d;
+  --chart-machine-to-internet-loss: #ff7aa2;
 }
+
+/*
+:root {
+  --desk: #cdbfe6;
+  --panel: #16121d;
+  --panel-sunken: #1d1628;
+  --edge: #2a2436;
+  --grid: #241f30;
+  --control: #3a3249;
+
+  --text: #ece6f7;
+  --readout: #ece6f7;
+  --label: #a79dbb;
+  --label-dim: #7d7392;
+
+  --amber: #ffd166;
+  --amber-dim: #8a6d33;
+  --nominal: #9be3c3;
+  --caution: #ffd166;
+  --alarm: #ff6b4a;
+
+  --chart-latency: #ece6f7;
+  --chart-packet-loss: #ff6b4a;
+  --chart-download: #b9a6e6;
+  --chart-upload: #9be3c3;
+  --chart-machine-to-internet-ping: #ffd166;
+  --chart-machine-to-internet-loss: #ff6b4a;
+}
+*/
+
+/*
+:root {
+  --desk: #33563f;
+  --panel: #13201a;
+  --panel-sunken: #0f1a15;
+  --edge: #243a2f;
+  --grid: #1b2f26;
+  --control: #33503f;
+
+  --text: #e6eddc;
+  --readout: #e6eddc;
+  --label: #a9bfae;
+  --label-dim: #8ba592;
+
+  --amber: #f7d154;
+  --amber-dim: #8a7430;
+  --nominal: #c8d6c6;
+  --caution: #f7d154;
+  --alarm: #ff5e7e;
+
+  --chart-latency: #e6eddc;
+  --chart-packet-loss: #ff5e7e;
+  --chart-download: #ff9f43;
+  --chart-upload: #c8d6c6;
+  --chart-machine-to-internet-ping: #f7d154;
+  --chart-machine-to-internet-loss: #ff5e7e;
+}
+*/
+
+/*
+:root {
+  --desk: #a0522d;
+  --panel: #30170f;
+  --panel-sunken: #26120b;
+  --edge: #5d3320;
+  --grid: #40200f;
+  --control: #6d3a22;
+
+  --text: #f5f5dc;
+  --readout: #f5f5dc;
+  --label: #d9c3a5;
+  --label-dim: #a8886a;
+
+  --amber: #f0c36d;
+  --amber-dim: #8a6b32;
+  --nominal: #d6d6a8;
+  --caution: #f0c36d;
+  --alarm: #e35336;
+
+  --chart-latency: #f5f5dc;
+  --chart-packet-loss: #e35336;
+  --chart-download: #f4a460;
+  --chart-upload: #d6d6a8;
+  --chart-machine-to-internet-ping: #f0c36d;
+  --chart-machine-to-internet-loss: #e35336;
+}
+*/
 
 * {
   box-sizing: border-box;
@@ -42,14 +134,14 @@ body::-webkit-scrollbar {
 }
 
 body {
-  background: #0f1722;
+  background: var(--desk);
 
   color: var(--label);
   font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
 
   min-height: 100vh;
-  padding: clamp(14px, 3vw, 32px);
+  padding: var(--page-pad);
 }
 
 .console {
@@ -93,7 +185,7 @@ header {
   font-family: var(--mono);
   font-size: clamp(15px, 2.4vw, 20px);
   letter-spacing: 0.04em;
-  color: #dfe7ef;
+  color: var(--text);
   margin: 0;
   font-weight: 600;
 }
@@ -155,7 +247,7 @@ header {
   font-family: var(--mono);
   font-size: clamp(15px, 2.6vw, 21px);
   letter-spacing: 0.08em;
-  color: #c7d0da;
+  color: var(--text);
 }
 
 .alarm-subtext {
@@ -172,7 +264,7 @@ header {
 
 .state-nominal .alarm-dot {
   background: var(--nominal);
-  box-shadow: 0 0 14px 1px rgba(95, 208, 138, 0.55);
+  box-shadow: 0 0 14px 1px color-mix(in srgb, var(--nominal) 55%, transparent);
 }
 
 .state-nominal .alarm-message {
@@ -185,7 +277,7 @@ header {
 
 .state-caution .alarm-dot {
   background: var(--caution);
-  box-shadow: 0 0 14px 1px rgba(245, 183, 64, 0.5);
+  box-shadow: 0 0 14px 1px color-mix(in srgb, var(--caution) 50%, transparent);
 }
 
 .state-caution .alarm-message {
@@ -199,7 +291,7 @@ header {
 
 .state-alarm .alarm-dot {
   background: var(--alarm);
-  box-shadow: 0 0 16px 2px rgba(229, 83, 61, 0.6);
+  box-shadow: 0 0 16px 2px color-mix(in srgb, var(--alarm) 60%, transparent);
   animation: pulse 1.1s ease-in-out infinite;
 }
 
@@ -219,16 +311,20 @@ header {
 
 /* ---- Big readouts ------------------------------------------------------ */
 
-.readouts {
+/* Two rows of readouts, split by where the number comes from: the dish's own
+   account of itself, then what this machine measured and what the history
+   says. Each row fills its width rather than leaving a ragged last row. */
+.tiles {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
-  margin-bottom: 10px;
 }
 
-/* Machine-to-internet row: two readouts measured from this machine, not the dish. */
-.readouts.is-machine-to-internet {
-  grid-template-columns: repeat(2, 1fr);
+.tiles.is-dish {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tiles.is-measured {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .label-note {
@@ -242,7 +338,7 @@ header {
   background: var(--panel);
   border: 1px solid var(--edge);
   border-radius: 4px;
-  padding: 16px 16px 14px;
+  padding: 13px 14px 12px;
   position: relative;
   overflow: hidden;
 }
@@ -260,7 +356,7 @@ header {
 }
 
 .reading {
-  margin-top: 12px;
+  margin-top: 9px;
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -268,8 +364,8 @@ header {
 
 .reading-value {
   font-family: var(--mono);
-  font-size: clamp(26px, 5vw, 40px);
-  color: var(--amber);
+  font-size: clamp(22px, 2.4vw, 30px);
+  color: var(--readout);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -277,7 +373,7 @@ header {
 .reading-unit {
   font-family: var(--mono);
   font-size: 13px;
-  color: var(--amber-dim);
+  color: var(--label);
 }
 
 .cell.is-critical .reading-value {
@@ -336,18 +432,234 @@ header {
 }
 
 .range-button:hover {
-  color: #dfe7ef;
+  color: var(--text);
   background: rgba(255, 255, 255, 0.04);
 }
 
 .range-button.is-selected {
-  background: rgba(245, 183, 64, 0.14);
-  color: var(--amber);
+  background: var(--control);
+  color: var(--text);
 }
 
 .range-button:focus-visible {
   outline: 1px solid var(--amber);
   outline-offset: 1px;
+}
+
+/* ---- Page body --------------------------------------------------------- */
+
+.masthead {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* Charts on the left, the sky scope and the incident list on the right. The
+   two columns are the same height, so the list gets whatever the scope
+   doesn't want and scrolls inside it. */
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.body-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.body-side {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.body-side .scope {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The scope has to stay square or its drawing stretches. A canvas carries an
+   intrinsic size from its width/height attributes, which wins over
+   aspect-ratio, so the square is held by a plain div and the canvas fills it. */
+.sky-square {
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+.sky-square #sky-scope {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The sky scope's legend, shared by the sky page and the dashboard panel. */
+.scope-legend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  justify-content: center;
+
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--label-dim);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.legend-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.legend-swatch.is-in-cone {
+  background: var(--amber);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--amber) 70%, transparent);
+}
+
+.legend-swatch.is-above {
+  background: var(--label-dim);
+}
+
+/* Where the dish is aimed, under the scope it describes. Until the dish
+   reports a boresight the cone is an assumption, and is-assumed says so. */
+.sky-note {
+  margin-top: 8px;
+  text-align: center;
+
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--label-dim);
+}
+
+.sky-note.is-assumed {
+  color: var(--caution);
+}
+
+/* The sky page's alarm strip, shrunk to sit inside the dashboard panel. It
+   keeps the alarm-dot/alarm-message classes so the state colours still apply. */
+.sky-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  margin-bottom: 8px;
+  padding: 6px 10px;
+
+  background: var(--panel-sunken);
+  border: 1px solid var(--edge);
+  border-left-width: 3px;
+  border-left-color: var(--label-dim);
+  border-radius: 3px;
+}
+
+.sky-strip .alarm-dot {
+  width: 8px;
+  height: 8px;
+}
+
+.sky-strip .alarm-message {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.sky-strip .alarm-subtext {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.sky-square {
+  margin-bottom: 8px;
+}
+
+/* ---- Incidents --------------------------------------------------------- */
+
+.incident-filter {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.incident-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  margin-right: -6px;
+  padding-right: 6px;
+}
+
+.incident-list::-webkit-scrollbar {
+  display: none;
+}
+
+.incident {
+  display: grid;
+  grid-template-columns: 62px 7px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--grid);
+}
+
+.incident-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--label-dim);
+}
+
+.incident-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--label-dim);
+}
+
+.incident.is-loss .incident-dot {
+  background: var(--alarm);
+}
+
+.incident.is-latency .incident-dot {
+  background: var(--caution);
+}
+
+.incident.is-outage .incident-dot {
+  background: var(--chart-download);
+}
+
+.incident-text {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.incident-duration {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--label);
+  text-align: right;
+}
+
+.incident-empty {
+  font-size: 12px;
+  color: var(--label-dim);
+  margin: 8px 0 0;
 }
 
 /* ---- Strip charts ------------------------------------------------------ */
@@ -393,13 +705,14 @@ header {
   pointer-events: none;
   white-space: nowrap;
 
-  background: rgba(14, 18, 22, 0.92);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
   border: 1px solid var(--edge);
   border-radius: 3px;
 
   padding: 5px 8px;
   font-family: var(--mono);
   font-size: 11px;
+  color: var(--text);
 
   transform: translate(-50%, calc(-100% - 10px));
 
@@ -437,7 +750,7 @@ header {
 .status-strip .status-value {
   font-family: var(--mono);
   font-size: 14px;
-  color: #c7d0da;
+  color: var(--text);
   margin-top: 8px;
   letter-spacing: 0.02em;
   word-break: break-word;
@@ -527,18 +840,25 @@ footer {
 
 .connection-status.is-live .connection-dot {
   background: var(--nominal);
-  box-shadow: 0 0 8px rgba(95, 208, 138, 0.6);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--nominal) 60%, transparent);
 }
 
 .connection-status.is-lost .connection-dot {
   background: var(--alarm);
-  box-shadow: 0 0 8px rgba(229, 83, 61, 0.6);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--alarm) 60%, transparent);
 }
 
 /* ---- Responsive -------------------------------------------------------- */
 
+@media (max-width: 1100px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
-  .readouts {
+  .tiles.is-dish,
+  .tiles.is-measured {
     grid-template-columns: repeat(2, 1fr);
   }
   .status-strip {
