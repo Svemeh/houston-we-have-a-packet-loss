@@ -123,6 +123,7 @@
   }
 
   // ---- Scope (one strip chart) -------------------------------------------
+  const PLOT_TOP_PADDING_PX = 12; // room above the plot for the top axis label
   const PLOT_BOTTOM_PADDING_PX = 14; // room under the plot for axis labels
   const AXIS_HEADROOM = 1.25; // top of scale sits 25% above the peak
   const HOVER_SNAP_PX = 8; // how close the cursor must be to snap to a point
@@ -223,9 +224,10 @@
       rangeLabelEl.textContent = visiblePointCount
         ? `0–${axisTop} ${config.unit} · ${viewWindow.selectedRange.label}`
         : `${viewWindow.selectedRange.label} span`;
-      const plotHeight = heightPx - PLOT_BOTTOM_PADDING_PX;
+      const plotHeight = heightPx - PLOT_TOP_PADDING_PX - PLOT_BOTTOM_PADDING_PX;
+      const plotBottom = PLOT_TOP_PADDING_PX + plotHeight;
       const traceColor = getCssVar(config.colorVar).trim();
-      const yForValue = value => plotHeight * (1 - Math.min(value, axisTop) / axisTop);
+      const yForValue = value => PLOT_TOP_PADDING_PX + plotHeight * (1 - Math.min(value, axisTop) / axisTop);
 
       // Grid
       canvasCtx.strokeStyle = getCssVar("--grid");
@@ -235,13 +237,13 @@
       const gridStep = config.minGridStep ? pickGridStep(axisTop, config.minGridStep) : axisTop / 4;
       const gridDivisions = Math.max(1, Math.round(axisTop / gridStep));
       for (let division = 0; division <= gridDivisions; division++) {
-        const gridLineY = Math.round((plotHeight * division) / gridDivisions) + 0.5;
+        const gridLineY = Math.round(PLOT_TOP_PADDING_PX + (plotHeight * division) / gridDivisions) + 0.5;
         canvasCtx.beginPath();
         canvasCtx.moveTo(0, gridLineY);
         canvasCtx.lineTo(widthPx, gridLineY);
         canvasCtx.stroke();
         const gridValue = Math.round(axisTop - division * gridStep);
-        canvasCtx.fillText(String(gridValue), 2, gridLineY - 3 < 8 ? gridLineY + 11 : gridLineY - 3);
+        canvasCtx.fillText(String(gridValue), 2, gridLineY - 3);
       }
       if (visiblePointCount < 1) return;
 
@@ -266,11 +268,11 @@
       for (const segment of segments) {
         // Fill under
         canvasCtx.beginPath();
-        canvasCtx.moveTo(xForTime(segment[0].time), plotHeight);
+        canvasCtx.moveTo(xForTime(segment[0].time), plotBottom);
         for (const point of segment) {
           canvasCtx.lineTo(xForTime(point.time), yForValue(point.value));
         }
-        canvasCtx.lineTo(xForTime(segment[segment.length - 1].time), plotHeight);
+        canvasCtx.lineTo(xForTime(segment[segment.length - 1].time), plotBottom);
         canvasCtx.closePath();
         canvasCtx.fillStyle = withAlpha(traceColor, traceFillOpacity);
         canvasCtx.fill();
@@ -308,7 +310,7 @@
           canvasCtx.lineWidth = 1;
           canvasCtx.beginPath();
           canvasCtx.moveTo(Math.round(crosshairX) + 0.5, 0);
-          canvasCtx.lineTo(Math.round(crosshairX) + 0.5, plotHeight);
+          canvasCtx.lineTo(Math.round(crosshairX) + 0.5, plotBottom);
           canvasCtx.stroke();
           canvasCtx.beginPath();
           canvasCtx.arc(crosshairX, crosshairY, HOVER_DOT_RADIUS_PX, 0, Math.PI * 2);
@@ -444,6 +446,7 @@
     rangeLabelId: "chart-range-packet-loss",
     unit: "%",
     minAxisTop: 5,
+    maxAxisTop: 100,
     axisRounding: 5,
     minGridStep: 1,
     colorVar: "--chart-packet-loss",
