@@ -33,7 +33,23 @@ type HopRollup struct {
 	// The dish reports ~3s late, so these lag HandoverLoss by that much.
 	DishDropSlots   []int `json:"dish_drop_slots"`
 	DishSlotSamples []int `json:"dish_slot_samples"`
+
+	HandoverBursts          int     `json:"handover_bursts"`
+	HandoverBurstsWithLoss  int     `json:"handover_bursts_with_loss"`
+	HandoverLostPings       int     `json:"handover_lost_pings"`
+	HandoverLossMsP50       float64 `json:"handover_loss_ms_p50"`
+	HandoverLossMsP90       float64 `json:"handover_loss_ms_p90"`
+	HandoverBurstsSendError int     `json:"handover_bursts_send_error"`
+
+	Sampling string `json:"sampling"`
 }
+
+const (
+	SamplingRandomPhase = "random_phase"
+	SamplingUnknown     = "unknown"
+)
+
+var processStart = time.Now()
 
 func (rollup HopRollup) SampleTime() time.Time { return rollup.HourStart }
 
@@ -55,7 +71,7 @@ type HopHourStats struct {
 // nothing: the samples are already on disk, and any hour missed while the app
 // was down is picked up on the next tick. Hours already summarised are skipped,
 // which is why it ticks faster than once an hour — a restart shouldn't wait.
-func rollupLoop(ctx context.Context, hopsLogPath, dishLogPath string, rollupLogFile *LogFile[HopRollup], rollupLogPath string) {
+func rollupLoop(ctx context.Context, hopsLogPath, dishLogPath, handoverLogPath string, rollupLogFile *LogFile[HopRollup], rollupLogPath string) {
 	ticker := time.NewTicker(RollupInterval)
 	defer ticker.Stop()
 
@@ -97,8 +113,16 @@ func rollupLoop(ctx context.Context, hopsLogPath, dishLogPath string, rollupLogF
 			dishSamples = nil
 		}
 
+		handovers, err := LoadSamplesSince[HandoverSample](handoverLogPath, wanted[0])
+		if err != nil {
+			log.Printf("rollup: could not read %s: %v", handoverLogPath, err)
+			handovers = nil
+		}
+
 		for _, hour := range wanted {
 			rollup := summariseHour(samples, dishSamples, hour)
+			addHandoverBursts(&rollup, handovers, hour)
+			rollup.Sampling = samplingMode(hour, processStart, handovers)
 			// An hour with no samples at all means the app wasn't running.
 			// Record nothing rather than a line claiming total loss.
 			if rollup.Samples == 0 {
@@ -210,6 +234,63 @@ func summariseHour(samples []HopSample, dishSamples []TelemetrySample, hourStart
 		}
 	}
 	return rollup
+}
+
+// addHandoverBursts folds the hour's handover bursts into the rollup.
+func addHandoverBursts(rollup *HopRollup, handovers []HandoverSample, hourStart time.Time) {
+	hourEnd := hourStart.Add(time.Hour)
+	var lossDurations []float64
+	for _, burst := range handovers {
+		if burst.Boundary.Before(hourStart) {
+			continue
+		}
+		if !burst.Boundary.Before(hourEnd) {
+			break
+		}
+		if burst.Errors > 0 {
+			rollup.HandoverBurstsSendError++
+			continue
+		}
+		rollup.HandoverBursts++
+		rollup.HandoverLostPings += burst.Lost
+		if burst.Lost == 0 || burst.FirstLostMs == nil || burst.LastLostMs == nil {
+			continue
+		}
+		rollup.HandoverBurstsWithLoss++
+		lossDurations = append(lossDurations, float64(longestLossRunMs(burst)))
+	}
+	sort.Float64s(lossDurations)
+	rollup.HandoverLossMsP50 = percentile(lossDurations, 0.50)
+	rollup.HandoverLossMsP90 = percentile(lossDurations, 0.90)
+}
+
+// longestLossRunMs is the longest run of consecutive lost echoes, in ms.
+func longestLossRunMs(burst HandoverSample) int {
+	longest, run := 0, 0
+	for _, rtt := range burst.RTTMs {
+		if rtt >= 0 {
+			run = 0
+			continue
+		}
+		run++
+		longest = max(longest, run)
+	}
+	return longest * burst.StepMs
+}
+
+// samplingMode reports SamplingRandomPhase only when it can be proven: the
+// hour began after this process did, or a burst fired at the hour's first handover.
+func samplingMode(hourStart, started time.Time, handovers []HandoverSample) string {
+	if !hourStart.Before(started) {
+		return SamplingRandomPhase
+	}
+	firstSlotEnd := hourStart.Add(HandoverSlotSeconds * time.Second)
+	for _, burst := range handovers {
+		if !burst.Boundary.Before(hourStart) && burst.Boundary.Before(firstSlotEnd) {
+			return SamplingRandomPhase
+		}
+	}
+	return SamplingUnknown
 }
 
 // percentile returns the nearest-rank percentile of an already sorted slice,

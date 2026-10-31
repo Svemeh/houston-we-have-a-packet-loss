@@ -124,6 +124,19 @@ const (
 	// Dish outages: the dish's own outage list from get_history.
 	DefaultOutageLogPath = DataDir + "/dishOutages.jsonl"
 	OutagePollInterval   = 60 * time.Second
+
+	// Handover burst around every handover: unix_seconds % 15 == 12 (:12/:27/:42/:57 UTC).
+	HandoverBoundaryOffset   = 12
+	HandoverBurstTarget      = HopEndTarget
+	HandoverBurstStep        = 20 * time.Millisecond // a handover loses only 1–2 echoes at ~12 ms spacing
+	HandoverBurstBefore      = 600 * time.Millisecond
+	HandoverBurstAfter       = 900 * time.Millisecond
+	HandoverBurstMaxLateWake = 50 * time.Millisecond
+	DefaultHandoverLogPath   = DataDir + "/handovers.jsonl"
+
+	// SchedulerResyncAfter: a wake this far off plan restarts the 1/s schedule.
+	SchedulerResyncAfter = 3 * time.Second
+	SkipReportInterval   = 1 * time.Hour
 )
 
 // DishHopTarget is the dish's LAN address, the same on every Starlink setup.
