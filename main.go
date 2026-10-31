@@ -7,8 +7,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 )
+
+// version is set at release time with -ldflags "-X main.version=v1.2.3".
+var version = "dev"
 
 func main() {
 	dishAddress := flag.String("addr", DefaultDishAddress, "Starlink dish gRPC address")
@@ -22,9 +26,16 @@ func main() {
 	noPing := flag.Bool("no-ping", false, "don't ping from this machine")
 	hopsLogPath := flag.String("hops-log", DefaultHopsLogPath, "per-hop ping log file (JSONL)")
 	noHops := flag.Bool("no-hops", false, "don't ping the hops along the path")
+	routerAddress := flag.String("router", RouterAuto, "LAN router to ping: an IP, \"auto\" (default gateway) or \"none\"")
 	outageLogPath := flag.String("outage-log", DefaultOutageLogPath, "dish outage log file (JSONL)")
 	rollupLogPath := flag.String("rollup-log", DefaultRollupLogPath, "hourly hop summary log file (JSONL)")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	collector, err := newCollector(*useFake, *dishAddress)
 	if err != nil {
@@ -90,12 +101,15 @@ func main() {
 	hubCapacity := int(BackfillWindow / DefaultPollInterval)
 	hub := NewHub[TelemetrySample](hubCapacity)
 
-	observer, err := LoadObserver()
+	observer, locationSource, err := LoadObserver(DefaultSettingsPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "✗ %v\n", err)
 		os.Exit(1)
 	}
-	tracker := NewSkyTracker(observer)
+	if locationSource == "" {
+		log.Printf("sky: no location set yet; the sky view (%s) will ask for it", RouteSky)
+	}
+	tracker := NewSkyTracker(observer, locationSource)
 
 	priorSamples, err := LoadSamplesSince[TelemetrySample](*logPath, time.Now().Add(-BackfillWindow))
 	if err != nil {
@@ -127,7 +141,7 @@ func main() {
 		log.Printf("loaded %d prior pings from %s", len(priorPings), *pingLogPath)
 	}
 
-	ctx, stopSignalWatch := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stopSignalWatch := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignalWatch()
 
 	go pollLoop(ctx, collector, hub, logFile, tracker)
@@ -137,7 +151,11 @@ func main() {
 		go NewPinger(*pingTarget, pingHub, pingLogFile).Run(ctx)
 	}
 	if !*noHops {
-		go NewHopPinger(HopTargets, hopsHub, hopsLogFile).Run(ctx)
+		router := resolveRouter(*routerAddress)
+		if router != "" {
+			HopLocalTargets = []string{router, DishHopTarget}
+		}
+		go NewHopPinger(hopTargets(router), hopsHub, hopsLogFile).Run(ctx)
 		go rollupLoop(ctx, *hopsLogPath, *logPath, rollupLogFile, *rollupLogPath)
 	}
 	if outageSource, ok := collector.(OutageSource); ok {
@@ -156,6 +174,7 @@ func main() {
 		hopsLogPath:      *hopsLogPath,
 		rollupLogPath:    *rollupLogPath,
 		outageLogPath:    *outageLogPath,
+		settingsPath:     DefaultSettingsPath,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ server error: %v\n", err)
 		os.Exit(1)

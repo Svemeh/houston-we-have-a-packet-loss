@@ -129,7 +129,7 @@ func summariseHour(samples []HopSample, dishSamples []TelemetrySample, hourStart
 	hourEnd := hourStart.Add(time.Hour)
 	rollup := HopRollup{
 		HourStart:    hourStart,
-		Hops:         make(map[string]HopHourStats, len(HopTargets)),
+		Hops:         make(map[string]HopHourStats),
 		HandoverLoss: make([]int, HandoverSlotSeconds),
 		HandoverSent: make([]int, HandoverSlotSeconds),
 

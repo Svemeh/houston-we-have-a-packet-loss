@@ -36,6 +36,8 @@ type dashboardSources struct {
 	hopsLogPath      string
 	rollupLogPath    string
 	outageLogPath    string
+
+	settingsPath string
 }
 
 func serveDashboard(ctx context.Context, listenAddress string, sources dashboardSources) error {
@@ -73,6 +75,7 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 		http.ServeFileFS(response, request, staticRoot, "sky.html")
 	})
 	router.HandleFunc(RouteSkyEvents, newSkyStreamHandler(sources.tracker))
+	router.HandleFunc(RouteLocation, newLocationHandler(sources.tracker, sources.settingsPath))
 
 	server := &http.Server{Addr: listenAddress, Handler: router}
 
@@ -87,7 +90,7 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 	if strings.HasPrefix(displayAddress, ":") {
 		displayAddress = "localhost" + displayAddress
 	}
-	log.Printf("%s — dashboard live at http://%s (Ctrl+C to stop)", AppName, displayAddress)
+	log.Printf("%s %s — dashboard live at http://%s (Ctrl+C to stop)", AppName, version, displayAddress)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
@@ -352,5 +355,89 @@ func newIncidentHandler(hops SampleSource[HopSample], outages SampleSource[DishO
 			Count:          len(incidents),
 			Incidents:      incidents,
 		})
+	}
+}
+
+// locationResponse is what RouteLocation returns.
+type locationResponse struct {
+	LocationSet  bool    `json:"location_set"`
+	Source       string  `json:"source,omitempty"` // LocationFromEnv or LocationFromSettings
+	LatitudeDeg  float64 `json:"latitude_deg,omitempty"`
+	LongitudeDeg float64 `json:"longitude_deg,omitempty"`
+}
+
+// maxLocationBodyBytes caps a POST to RouteLocation; the real payload is ~60 bytes.
+const maxLocationBodyBytes = 1 << 10
+
+// newLocationHandler serves RouteLocation. GET reports the current position,
+// POST {"latitude_deg":..,"longitude_deg":..} saves a new one to the settings
+// file and applies it straight away.
+//
+// POST only takes application/json: a cross-site form can't send that without
+// a CORS preflight, which this server never approves, so another web page
+// can't move the dish behind the user's back.
+func newLocationHandler(tracker *SkyTracker, settingsPath string) http.HandlerFunc {
+	respond := func(response http.ResponseWriter) {
+		observer, source := tracker.Location()
+		payload := locationResponse{LocationSet: source != "", Source: source}
+		if source != "" {
+			payload.LatitudeDeg, payload.LongitudeDeg = observer.LatitudeDeg, observer.LongitudeDeg
+		}
+		response.Header().Set("Content-Type", "application/json")
+		response.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(response).Encode(payload)
+	}
+
+	return func(response http.ResponseWriter, request *http.Request) {
+		switch request.Method {
+		case http.MethodGet, http.MethodHead:
+			respond(response)
+			return
+		case http.MethodPost:
+		default:
+			response.Header().Set("Allow", "GET, POST")
+			http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if !strings.HasPrefix(request.Header.Get("Content-Type"), "application/json") {
+			http.Error(response, "send JSON", http.StatusUnsupportedMediaType)
+			return
+		}
+		if _, source := tracker.Location(); source == LocationFromEnv {
+			http.Error(response, "location is set by HOUSTON_LAT/HOUSTON_LON; change it there", http.StatusConflict)
+			return
+		}
+
+		var observer Observer
+		decoder := json.NewDecoder(io.LimitReader(request.Body, maxLocationBodyBytes))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&observer); err != nil {
+			http.Error(response, "bad location: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		// Two decimals is ~1 km: far finer than the sky plot can show, and
+		// coarse enough that the file doesn't pinpoint a house.
+		observer.LatitudeDeg = roundTo(observer.LatitudeDeg, 2)
+		observer.LongitudeDeg = roundTo(observer.LongitudeDeg, 2)
+		if err := observer.Validate(); err != nil {
+			http.Error(response, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		settings, err := LoadSettings(settingsPath)
+		if err != nil {
+			log.Printf("sky: replacing unreadable %s: %v", settingsPath, err)
+			settings = Settings{}
+		}
+		settings.Location = &observer
+		if err := SaveSettings(settingsPath, settings); err != nil {
+			log.Printf("sky: could not save location: %v", err)
+			http.Error(response, "could not save location", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("sky: location set to %.2f, %.2f from the dashboard", observer.LatitudeDeg, observer.LongitudeDeg)
+		tracker.SetObserver(observer, LocationFromSettings)
+		respond(response)
 	}
 }
