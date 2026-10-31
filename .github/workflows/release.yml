@@ -12,18 +12,11 @@ permissions:
   packages: write # push to ghcr.io
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - run: go vet ./...
-      - run: go test -race ./...
+  ci:
+    uses: ./.github/workflows/ci.yml
 
   binaries:
-    needs: test
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +33,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   image:
-    needs: test
+    needs: ci
     runs-on: ubuntu-latest
     env:
       # ghcr.io wants lowercase names.

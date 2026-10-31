@@ -4,9 +4,18 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,10 +23,152 @@ jobs:
         with:
           go-version-file: go.mod
       - name: gofmt
-        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
-      - name: vet
-        run: go vet ./...
-      - name: test
-        run: go test -race ./...
-      - name: build
-        run: go build -o houston .
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "$out"; echo "::error::run gofmt -w on the files above"; exit 1; fi
+      - name: go mod tidy
+        run: go mod tidy -diff
+      - name: LF line endings
+        run: |
+          crlf=$(git ls-files --eol | grep -E '^i/(crlf|mixed)' | cut -f2 || true)
+          if [ -n "$crlf" ]; then echo "$crlf"; echo "::error::committed with CRLF"; exit 1; fi
+      - run: go vet ./...
+      - uses: dominikh/staticcheck-action@v1
+        with:
+          version: latest
+          install-go: false
+
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -race ./...
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+          retention-days: 3
+
+  install:
+    name: install (${{ matrix.os }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      HOUSTON_DOWNLOAD_URL: http://127.0.0.1:8000
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Serve release files
+        run: |
+          py=python3; command -v python3 >/dev/null || py=python
+          (cd dist && $py -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          for _ in $(seq 1 20); do curl -fsS -o /dev/null "$HOUSTON_DOWNLOAD_URL/checksums.txt" && exit 0; sleep 0.5; done
+          exit 1
+      - name: Install
+        if: runner.os != 'Windows'
+        run: sh install.sh
+      - name: Install
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./install.ps1
+      - name: Dashboard answers
+        run: |
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:2101/location && exit 0; sleep 1; done
+          exit 1
+      - name: Service log
+        if: failure()
+        run: sudo journalctl -u houston --no-pager 2>/dev/null || cat ~/Library/Logs/Houston/houston.log 2>/dev/null || true
+      - name: Uninstall
+        if: runner.os != 'Windows'
+        run: sh install.sh uninstall
+      - name: Uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./install.ps1 -Uninstall
+      - name: Port is free
+        run: |
+          sleep 2
+          if curl -fsS -o /dev/null http://127.0.0.1:2101/; then echo "::error::still running after uninstall"; exit 1; fi
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck install.sh
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { Install-Module PSScriptAnalyzer -Force -Scope CurrentUser }
+          $r = Invoke-ScriptAnalyzer -Path install.ps1 -Severity Error
+          $r | Format-Table -AutoSize
+          if ($r) { exit 1 }
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build all platforms
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build amd64 image to run
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: houston:ci
+          cache-from: type=gha
+      - name: Container starts and serves the dashboard
+        run: |
+          docker run -d --name houston -p 2101:2101 houston:ci -fake
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:2101/location && exit 0; sleep 1; done
+          docker logs houston
+          exit 1
+
+  ci-ok:
+    if: always()
+    needs: [lint, test, build, install, scripts, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - run: echo ok
