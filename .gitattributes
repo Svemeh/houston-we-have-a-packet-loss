@@ -1,3 +1,6 @@
 # Store text with LF in the repo, whatever the OS or git settings.
 * text=auto eol=lf
 *.png binary
+*.sh linguist-detectable=false
+*.ps1 linguist-detectable=false
+Dockerfile linguist-detectable=false
