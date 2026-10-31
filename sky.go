@@ -352,6 +352,9 @@ func (tracker *SkyTracker) RefreshElements(ctx context.Context) error {
 	if response.StatusCode == http.StatusForbidden {
 		note, _ := io.ReadAll(io.LimitReader(response.Body, 512))
 		if strings.Contains(string(note), "has not updated") {
+			if tracker.elementsAge() < 0 {
+				return fmt.Errorf("celestrak has nothing new and no elements are loaded")
+			}
 			log.Print("sky: elements already current, nothing to download")
 			tracker.markElementsRevalidated()
 			return nil
