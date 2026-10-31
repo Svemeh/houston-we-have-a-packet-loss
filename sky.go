@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -169,6 +170,7 @@ type SkySnapshot struct {
 
 type trackedSatellite struct {
 	name       string
+	noradID    int
 	propagator satellite.Satellite
 }
 
@@ -305,7 +307,7 @@ func (tracker *SkyTracker) refreshLoop(ctx context.Context) {
 // no network at all. Celestrak will not serve a second copy within an update
 // cycle, which makes this mandatory rather than an optimisation.
 func (tracker *SkyTracker) loadCachedElements() error {
-	file, err := os.Open(TLECachePath)
+	file, err := os.Open(ElementCachePath)
 	if err != nil {
 		return err
 	}
@@ -324,7 +326,7 @@ func (tracker *SkyTracker) loadCachedElements() error {
 	}
 
 	tracker.storeElements(tracked, catalogCount, fileInfo.ModTime())
-	log.Printf("sky: seeded %d satellites from %s (%s old)", len(tracked), TLECachePath,
+	log.Printf("sky: seeded %d satellites from %s (%s old)", len(tracked), ElementCachePath,
 		time.Since(fileInfo.ModTime()).Round(time.Minute))
 	return nil
 }
@@ -379,10 +381,10 @@ func (tracker *SkyTracker) RefreshElements(ctx context.Context) error {
 	}
 
 	// Only cache what parsed, so a truncated download can't poison the restart.
-	if err := os.MkdirAll(filepath.Dir(TLECachePath), 0o755); err != nil {
-		log.Printf("sky: could not create %s: %v", filepath.Dir(TLECachePath), err)
-	} else if err := os.WriteFile(TLECachePath, rawElements, 0o644); err != nil {
-		log.Printf("sky: could not write %s: %v", TLECachePath, err)
+	if err := os.MkdirAll(filepath.Dir(ElementCachePath), 0o755); err != nil {
+		log.Printf("sky: could not create %s: %v", filepath.Dir(ElementCachePath), err)
+	} else if err := os.WriteFile(ElementCachePath, rawElements, 0o644); err != nil {
+		log.Printf("sky: could not write %s: %v", ElementCachePath, err)
 	}
 	tracker.storeElements(tracked, catalogCount, time.Now())
 
@@ -419,53 +421,145 @@ func (tracker *SkyTracker) elementsAge() time.Duration {
 	return time.Since(tracker.elementsFetchedAt)
 }
 
-// parseElementStream reads Celestrak's 3-line TLE format, dropping satellites
-// whose inclination puts them permanently below our horizon. Returns the kept
-// set and how many records were seen in total.
+type ommRecord struct {
+	ObjectName      string  `json:"OBJECT_NAME"`
+	NoradCatID      int     `json:"NORAD_CAT_ID"`
+	Epoch           string  `json:"EPOCH"`
+	MeanMotion      float64 `json:"MEAN_MOTION"`
+	Eccentricity    float64 `json:"ECCENTRICITY"`
+	Inclination     float64 `json:"INCLINATION"`
+	RAOfAscNode     float64 `json:"RA_OF_ASC_NODE"`
+	ArgOfPericenter float64 `json:"ARG_OF_PERICENTER"`
+	MeanAnomaly     float64 `json:"MEAN_ANOMALY"`
+	BStar           float64 `json:"BSTAR"`
+	MeanMotionDot   float64 `json:"MEAN_MOTION_DOT"`
+	MeanMotionDDot  float64 `json:"MEAN_MOTION_DDOT"`
+}
+
+// parseElementStream reads Celestrak's OMM JSON, dropping satellites whose
+// inclination puts them permanently below our horizon. Returns the kept set
+// and how many records were seen in total.
 func parseElementStream(reader io.Reader, observerLatitudeDeg float64) ([]trackedSatellite, int, error) {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, scannerInitialBufferBytes), scannerMaxLineBytes)
+	var records []ommRecord
+	if err := json.NewDecoder(reader).Decode(&records); err != nil {
+		return nil, 0, err
+	}
 
 	var tracked []trackedSatellite
-	catalogCount := 0
-	currentName, firstLine := "", ""
-
-	for scanner.Scan() {
-		line := strings.TrimRight(scanner.Text(), " \r\t")
-		switch {
-		case strings.HasPrefix(line, "1 "):
-			firstLine = line
-		case strings.HasPrefix(line, "2 "):
-			catalogCount++
-			if firstLine == "" {
-				continue
-			}
-			if canReachLatitude(line, observerLatitudeDeg) {
-				propagator := satellite.TLEToSat(firstLine, line, satellite.GravityWGS84)
-				if propagator.Error == 0 {
-					tracked = append(tracked, trackedSatellite{name: currentName, propagator: propagator})
-				}
-			}
-			currentName, firstLine = "", ""
-		default:
-			currentName = strings.TrimSpace(line)
+	for _, record := range records {
+		if !canReachLatitude(record.Inclination, observerLatitudeDeg) {
+			continue
+		}
+		line1, line2, err := ommToTLE(record)
+		if err != nil {
+			continue
+		}
+		propagator := satellite.TLEToSat(line1, line2, satellite.GravityWGS84)
+		if propagator.Error == 0 {
+			tracked = append(tracked, trackedSatellite{name: record.ObjectName, noradID: record.NoradCatID, propagator: propagator})
 		}
 	}
-	return tracked, catalogCount, scanner.Err()
+	return tracked, len(records), nil
+}
+
+// ommToTLE formats OMM elements as TLE lines for go-satellite, which only
+// takes TLEs. The catalog number is 00000 since SGP4 doesn't use it and real
+// IDs no longer fit in five digits. Values that wouldn't fit a TLE column are
+// rejected, because go-satellite exits the process on an unparsable field.
+func ommToTLE(record ommRecord) (line1, line2 string, err error) {
+	epoch, err := time.Parse("2006-01-02T15:04:05.999999", record.Epoch)
+	if err != nil {
+		return "", "", err
+	}
+	for _, value := range []float64{record.MeanMotion, record.Eccentricity, record.Inclination,
+		record.RAOfAscNode, record.ArgOfPericenter, record.MeanAnomaly,
+		record.BStar, record.MeanMotionDot, record.MeanMotionDDot} {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return "", "", fmt.Errorf("non-finite element")
+		}
+	}
+	eccentricityDigits := int(math.Round(record.Eccentricity * 1e7))
+	ndot := strings.Replace(fmt.Sprintf("%+.8f", record.MeanMotionDot), "0.", ".", 1)
+	ndot = strings.Replace(ndot, "+", " ", 1)
+	if record.MeanMotion <= 0 || record.MeanMotion >= 100 ||
+		eccentricityDigits < 0 || eccentricityDigits > 9999999 ||
+		record.Inclination < 0 || record.Inclination > 180 || len(ndot) != 10 {
+		return "", "", fmt.Errorf("element out of TLE range")
+	}
+	nddot, err := tleExponent(record.MeanMotionDDot)
+	if err != nil {
+		return "", "", err
+	}
+	bstar, err := tleExponent(record.BStar)
+	if err != nil {
+		return "", "", err
+	}
+
+	hour, minute, second := epoch.Clock()
+	secondOfDay := float64(hour*3600+minute*60+second) + float64(epoch.Nanosecond())/1e9
+	epochDays := float64(epoch.YearDay()) + secondOfDay/86400
+
+	line1 = fmt.Sprintf("1 00000U          %02d%012.8f %s %s %s 0  999",
+		epoch.Year()%100, epochDays, ndot, nddot, bstar)
+	line2 = fmt.Sprintf("2 00000 %8.4f %8.4f %07d %8.4f %8.4f %11.8f    0",
+		record.Inclination, normaliseDegrees(record.RAOfAscNode),
+		eccentricityDigits,
+		normaliseDegrees(record.ArgOfPericenter), normaliseDegrees(record.MeanAnomaly),
+		record.MeanMotion)
+	return line1 + tleChecksum(line1), line2 + tleChecksum(line2), nil
+}
+
+// tleExponent writes a value in the TLE's implied-decimal form, e.g. -0.00012345 as "-12345-3".
+func tleExponent(value float64) (string, error) {
+	sign := " "
+	if value < 0 {
+		sign = "-"
+	}
+	magnitude := math.Abs(value)
+	if magnitude < 1e-10 {
+		return " 00000+0", nil
+	}
+	exponent := int(math.Floor(math.Log10(magnitude))) + 1
+	mantissa := int(math.Round(magnitude / math.Pow(10, float64(exponent)) * 1e5))
+	if mantissa >= 100000 {
+		mantissa /= 10
+		exponent++
+	}
+	if exponent > 9 {
+		return "", fmt.Errorf("%g too large for a TLE field", value)
+	}
+	if exponent < -9 {
+		return " 00000+0", nil
+	}
+	return fmt.Sprintf("%s%05d%+d", sign, mantissa, exponent), nil
+}
+
+func normaliseDegrees(value float64) float64 {
+	value = math.Mod(value, 360)
+	if value < 0 {
+		value += 360
+	}
+	return value
+}
+
+func tleChecksum(line string) string {
+	sum := 0
+	for _, char := range line {
+		switch {
+		case char >= '0' && char <= '9':
+			sum += int(char - '0')
+		case char == '-':
+			sum++
+		}
+	}
+	return strconv.Itoa(sum % 10)
 }
 
 // canReachLatitude is the cheap prefilter. A satellite's ground track never
 // exceeds its inclination, so anything that can't get within one horizon
 // radius of us is dead weight. At 60°N this discards nothing, since Starlink's
 // lowest shell is 43°; it earns its keep further north.
-func canReachLatitude(tleLine2 string, observerLatitudeDeg float64) bool {
-	if len(tleLine2) < 16 {
-		return false
-	}
-	inclinationDeg, err := strconv.ParseFloat(strings.TrimSpace(tleLine2[8:16]), 64)
-	if err != nil {
-		return false
-	}
+func canReachLatitude(inclinationDeg, observerLatitudeDeg float64) bool {
 	maxGroundLatitude := inclinationDeg
 	if maxGroundLatitude > 90 {
 		maxGroundLatitude = 180 - maxGroundLatitude // retrograde, e.g. 97.6° SSO
