@@ -9,6 +9,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/Svemeh/houston-we-have-a-packet-loss/main/install.sh | sh -s -- uninstall
 #
 # macOS: a LaunchAgent for your user, no sudo. Starts when you log in.
+#   Over SSH, or with nobody logged in on the screen, a LaunchAgent can't
+#   start, so it becomes a LaunchDaemon instead: still runs as you, starts at
+#   boot, needs sudo once.
 #   app + data  ~/Library/Application Support/Houston
 #   log         ~/Library/Logs/Houston/houston.log
 # Linux: a systemd service, needs sudo. Starts at boot.
@@ -109,26 +112,16 @@ wait_for_dashboard() {
 
 MAC_APP_DIR="$HOME/Library/Application Support/Houston"
 MAC_LOG_DIR="$HOME/Library/Logs/Houston"
-MAC_PLIST="$HOME/Library/LaunchAgents/$MAC_LABEL.plist"
+MAC_AGENT_PLIST="$HOME/Library/LaunchAgents/$MAC_LABEL.plist"
+MAC_DAEMON_PLIST="/Library/LaunchDaemons/$MAC_LABEL.plist"
 
-mac_stop() {
-	launchctl bootout "gui/$(id -u)/$MAC_LABEL" 2>/dev/null || true
-}
-
-mac_install() {
-	mac_stop
-	sleep 1 # let the old process let go of the port before checking it
-	if port_in_use; then
-		say "Note: something else is using port $PORT (an earlier 'go run .'?)."
-		say "      Stop it; Houston keeps retrying and takes over the port."
-	fi
-
-	mkdir -p "$MAC_APP_DIR" "$MAC_LOG_DIR" "$HOME/Library/LaunchAgents"
-	mv -f "$WORK/houston" "$MAC_APP_DIR/houston"
-
+# mac_plist prints the job definition. With a user name it's for a
+# LaunchDaemon, which would otherwise run as root.
+mac_plist() {
+	run_as="$1"
 	# ProcessType Interactive keeps macOS from coalescing timers, which
 	# would add its own delay to the round-trip times.
-	cat >"$MAC_PLIST" <<EOF
+	cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -153,30 +146,106 @@ mac_install() {
 	<string>$MAC_LOG_DIR/houston.log</string>
 	<key>StandardErrorPath</key>
 	<string>$MAC_LOG_DIR/houston.log</string>
+EOF
+	if [ -n "$run_as" ]; then
+		cat <<EOF
+	<key>UserName</key>
+	<string>$run_as</string>
+EOF
+	fi
+	cat <<EOF
 </dict>
 </plist>
 EOF
+}
 
-	# bootout returns before the old job is fully gone; retry briefly.
+mac_stop() {
+	launchctl bootout "gui/$(id -u)/$MAC_LABEL" 2>/dev/null || true
+	if [ -f "$MAC_DAEMON_PLIST" ]; then
+		as_root launchctl bootout "system/$MAC_LABEL" 2>/dev/null || true
+	fi
+}
+
+# mac_bootstrap loads a plist into a launchd domain. bootout returns before
+# the old job is fully gone, so a busy job is retried briefly. Returns 2 when
+# the domain isn't there (nobody logged in on the screen, or over SSH).
+mac_bootstrap() {
+	domain="$1"
+	plist="$2"
 	tries=0
-	until launchctl bootstrap "gui/$(id -u)" "$MAC_PLIST" 2>/dev/null; do
+	while :; do
+		if [ "$domain" = system ]; then
+			output=$(as_root launchctl bootstrap system "$plist" 2>&1) && return 0
+		else
+			output=$(launchctl bootstrap "$domain" "$plist" 2>&1) && return 0
+		fi
+		case "$output" in
+		*"125:"* | *"Could not find domain"*) return 2 ;;
+		esac
 		tries=$((tries + 1))
-		[ $tries -lt 5 ] || fail "launchctl could not start Houston (see $MAC_LOG_DIR/houston.log)"
+		if [ $tries -ge 5 ]; then
+			say "launchctl: $output" >&2
+			return 1
+		fi
 		sleep 1
 	done
+}
 
-	say "Installed $("$MAC_APP_DIR/houston" -version). Starts when you log in."
+mac_install_daemon() {
+	rm -f "$MAC_AGENT_PLIST" # or it would start a second copy at the next login
+	mac_plist "$(id -un)" >"$WORK/daemon.plist"
+	# launchd only loads daemons owned by root and not writable by others.
+	as_root install -m 644 -o root -g wheel "$WORK/daemon.plist" "$MAC_DAEMON_PLIST"
+	mac_bootstrap system "$MAC_DAEMON_PLIST" ||
+		fail "launchctl could not start Houston (see $MAC_LOG_DIR/houston.log)"
+	MAC_STARTS="Starts at boot."
+}
+
+mac_install() {
+	mac_stop
+	sleep 1 # let the old process let go of the port before checking it
+	if port_in_use; then
+		say "Note: something else is using port $PORT (an earlier 'go run .'?)."
+		say "      Stop it; Houston keeps retrying and takes over the port."
+	fi
+
+	mkdir -p "$MAC_APP_DIR" "$MAC_LOG_DIR" "$HOME/Library/LaunchAgents"
+	mv -f "$WORK/houston" "$MAC_APP_DIR/houston"
+
+	# Already a system service from an earlier install: keep it one.
+	if [ -f "$MAC_DAEMON_PLIST" ]; then
+		mac_install_daemon
+	else
+		mac_plist "" >"$MAC_AGENT_PLIST"
+		status=0
+		mac_bootstrap "gui/$(id -u)" "$MAC_AGENT_PLIST" || status=$?
+		case $status in
+		0) MAC_STARTS="Starts when you log in." ;;
+		2)
+			say "Can't start a login item from here (SSH, or nobody logged in on the screen)."
+			say "Installing a system service instead: runs as $(id -un), starts at boot."
+			mac_install_daemon
+			;;
+		*) fail "launchctl could not start Houston (see $MAC_LOG_DIR/houston.log)" ;;
+		esac
+	fi
+
+	say "Installed $("$MAC_APP_DIR/houston" -version). $MAC_STARTS"
 	say "  data: $MAC_APP_DIR/data"
 	say "  log:  $MAC_LOG_DIR/houston.log"
-	if wait_for_dashboard; then
-		open "http://localhost:$PORT/"
+	if wait_for_dashboard && [ -z "${SSH_CONNECTION:-}" ]; then
+		open "http://localhost:$PORT/" >/dev/null 2>&1 || true
 	fi
-	say "Dashboard: http://localhost:$PORT"
+	address=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+	say "Dashboard: http://localhost:$PORT${address:+ (from other devices: http://$address:$PORT)}"
 }
 
 mac_uninstall() {
 	mac_stop
-	rm -f "$MAC_PLIST" "$MAC_APP_DIR/houston"
+	rm -f "$MAC_AGENT_PLIST" "$MAC_APP_DIR/houston"
+	if [ -f "$MAC_DAEMON_PLIST" ]; then
+		as_root rm -f "$MAC_DAEMON_PLIST"
+	fi
 	say "Houston removed. Your data is still in $MAC_APP_DIR/data"
 }
 
@@ -185,7 +254,7 @@ mac_uninstall() {
 LINUX_BIN=/usr/local/bin/houston
 LINUX_UNIT=/etc/systemd/system/houston.service
 
-linux_sudo() {
+as_root() {
 	if [ "$(id -u)" -eq 0 ]; then
 		"$@"
 	else
@@ -201,9 +270,9 @@ have_systemd() {
 linux_install() {
 	say "Installing to $LINUX_BIN ..."
 	if have_systemd; then
-		linux_sudo systemctl stop houston 2>/dev/null || true
+		as_root systemctl stop houston 2>/dev/null || true
 	fi
-	linux_sudo install -m 755 "$WORK/houston" "$LINUX_BIN"
+	as_root install -m 755 "$WORK/houston" "$LINUX_BIN"
 
 	if ! have_systemd; then
 		say "Installed $("$LINUX_BIN" -version). No systemd here, so start it yourself:"
@@ -218,7 +287,7 @@ linux_install() {
 
 	# DynamicUser runs it as a throwaway unprivileged user; StateDirectory
 	# gives that user /var/lib/houston, which survives updates.
-	linux_sudo tee "$LINUX_UNIT" >/dev/null <<EOF
+	as_root tee "$LINUX_UNIT" >/dev/null <<EOF
 [Unit]
 Description=Houston, We Have a Packet Loss (Starlink monitor)
 Documentation=https://github.com/$REPO
@@ -236,8 +305,8 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-	linux_sudo systemctl daemon-reload
-	linux_sudo systemctl enable --now houston >/dev/null 2>&1 ||
+	as_root systemctl daemon-reload
+	as_root systemctl enable --now houston >/dev/null 2>&1 ||
 		fail "systemd could not start Houston (journalctl -u houston)"
 
 	say "Installed $("$LINUX_BIN" -version). Starts at boot."
@@ -252,11 +321,11 @@ EOF
 
 linux_uninstall() {
 	if have_systemd && [ -f "$LINUX_UNIT" ]; then
-		linux_sudo systemctl disable --now houston 2>/dev/null || true
-		linux_sudo rm -f "$LINUX_UNIT"
-		linux_sudo systemctl daemon-reload
+		as_root systemctl disable --now houston 2>/dev/null || true
+		as_root rm -f "$LINUX_UNIT"
+		as_root systemctl daemon-reload
 	fi
-	linux_sudo rm -f "$LINUX_BIN"
+	as_root rm -f "$LINUX_BIN"
 	say "Houston removed. Your data is still in /var/lib/houston/data"
 }
 

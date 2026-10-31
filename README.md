@@ -92,7 +92,7 @@ same command again to update.
 
 | | Runs | Data | Needs |
 |---|---|---|---|
-| macOS | at login (LaunchAgent) | `~/Library/Application Support/Houston` | nothing |
+| macOS | at login (LaunchAgent); installed over SSH: at boot (LaunchDaemon) | `~/Library/Application Support/Houston` | nothing; sudo over SSH |
 | Linux | at boot (systemd) | `/var/lib/houston` | sudo |
 | Windows | at startup (scheduled task) | `C:\ProgramData\Houston` | admin, once |
 
