@@ -695,7 +695,6 @@
         for (const bucket of pingPayload.samples) chartPing(bucket, true);
       }
       scopes.forEach(scope => scope.draw());
-      loadIncidents();
     } finally {
       if (loadToken === latestRangeLoadToken) rangeBarEl.classList.remove("is-loading");
     }
@@ -703,7 +702,8 @@
 
   // ---- Incidents ---------------------------------------------------------
   // Derived server-side from the hop and outage logs, so this just renders
-  // whatever /incidents returns for the selected range.
+  // whatever /incidents returns for a fixed window, independent of the chart range.
+  const INCIDENT_RANGE_ID = "24h"; // the server caps history at 24 h
   const INCIDENT_KINDS = [
     { id: "", label: "All" },
     { id: "loss", label: "Loss" },
@@ -806,14 +806,13 @@
   }
 
   async function loadIncidents() {
-    const rangeId = viewWindow.selectedRange.id;
     const kindQuery = selectedIncidentKind ? `&kind=${selectedIncidentKind}` : "";
     try {
-      const response = await fetch(`/incidents?range=${encodeURIComponent(rangeId)}${kindQuery}`, { cache: "no-store" });
+      const response = await fetch(`/incidents?range=${INCIDENT_RANGE_ID}${kindQuery}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
       const payload = await response.json();
       const incidents = Array.isArray(payload.incidents) ? payload.incidents : [];
-      incidentCountEl.textContent = `${payload.count} · ${viewWindow.selectedRange.label}`;
+      incidentCountEl.textContent = `${payload.count} · ${INCIDENT_RANGE_ID}`;
       renderIncidents(incidents);
     } catch (error) {
       console.error("could not load incidents", error);
@@ -973,8 +972,8 @@
     }
   }, REBUCKET_INTERVAL_MS);
 
-  // Incidents are derived from logs that only move once a second; refreshing
-  // on the range change plus a slow timer is enough, and it costs a file read.
+  // Incidents are derived from logs that only move once a second; a slow
+  // timer is enough, and it costs a file read.
   const INCIDENT_REFRESH_MS = 30 * 1000;
   setInterval(loadIncidents, INCIDENT_REFRESH_MS);
   setInterval(loadSummaryTiles, SUMMARY_REFRESH_MS);
@@ -982,6 +981,7 @@
   window.addEventListener("resize", () => scopes.forEach(scope => scope.resizeCanvas()));
   buildRangeBar();
   buildIncidentFilter();
+  loadIncidents();
   loadSummaryTiles();
   scopes.forEach(scope => scope.resizeCanvas());
   connectToTelemetryStream();

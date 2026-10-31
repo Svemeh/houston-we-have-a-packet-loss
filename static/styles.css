@@ -477,13 +477,16 @@ header {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
   min-width: 0;
-  contain: size;
 }
 
 .body-side .scope {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.body-side .scope.is-list {
+  contain: size;
 }
 
 /* The scope has to stay square or its drawing stretches. A canvas carries an
@@ -973,7 +976,7 @@ footer {
   .body {
     grid-template-columns: 1fr;
   }
-  .body-side {
+  .body-side .scope.is-list {
     contain: none;
   }
   .incident-list {
