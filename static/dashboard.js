@@ -504,11 +504,12 @@
 
   function updateReadouts(sample) {
     setLinkState(sample.link_state);
-    setText("value-latency", formatNumber(sample.latency_ms, 0));
-    setText("value-download", formatNumber(sample.download_mbps, 1));
-    setText("value-upload", formatNumber(sample.upload_mbps, 1));
+    const isOffline = sample.link_state === "OFFLINE";
+    setText("value-latency", isOffline ? "—" : formatNumber(sample.latency_ms, 0));
+    setText("value-download", isOffline ? "—" : formatNumber(sample.download_mbps, 1));
+    setText("value-upload", isOffline ? "—" : formatNumber(sample.upload_mbps, 1));
     const dropPercent = (sample.drop_rate_fraction || 0) * 100;
-    setText("value-packet-loss", formatNumber(dropPercent, 1));
+    setText("value-packet-loss", isOffline ? "—" : formatNumber(dropPercent, 1));
 
     setClassName("cell-latency",
       "cell" +
@@ -525,7 +526,6 @@
           ? " is-caution"
           : ""));
 
-    const isOffline = sample.link_state === "OFFLINE";
     setText("line-of-sight-state", isOffline
       ? "—"
       : sample.obstructed
@@ -539,7 +539,7 @@
 
     if (sample.hardware_version) setText("hardware-version", sample.hardware_version);
     if (sample.software_version) setText("software-version", sample.software_version);
-    setText("uptime-clock", formatUptimeClock(sample.uptime_seconds));
+    setText("uptime-clock", isOffline ? "---:--:--:--" : formatUptimeClock(sample.uptime_seconds));
     setText("last-contact", sample.timestamp
       ? new Date(sample.timestamp).toLocaleTimeString()
       : new Date().toLocaleTimeString());
