@@ -134,6 +134,7 @@ const (
 	DefaultHandoverLogPath   = DataDir + "/handovers.jsonl"
 
 	// Serving satellite (-track-satellite): clear the obstruction map each slot, match the traced arc to a track.
+	DefaultTrackSatellite           = false
 	ServingClearDelay               = 300 * time.Millisecond // after the slot boundary
 	ServingReadInterval             = 1 * time.Second
 	ServingReadsPerSlot             = 14

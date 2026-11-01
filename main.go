@@ -30,7 +30,7 @@ func main() {
 	outageLogPath := flag.String("outage-log", DefaultOutageLogPath, "dish outage log file (JSONL)")
 	rollupLogPath := flag.String("rollup-log", DefaultRollupLogPath, "hourly hop summary log file (JSONL)")
 	handoverLogPath := flag.String("handover-log", DefaultHandoverLogPath, "handover burst log file (JSONL)")
-	trackSatellite := flag.Bool("track-satellite", false, "identify the serving satellite every 15 s (clears the dish's obstruction map each slot)")
+	trackSatellite := flag.Bool("track-satellite", DefaultTrackSatellite, "identify the serving satellite every 15 s (clears the dish's obstruction map each slot)")
 	servingLogPath := flag.String("serving-log", DefaultServingLogPath, "serving satellite log file (JSONL)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
