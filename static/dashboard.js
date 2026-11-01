@@ -712,16 +712,16 @@
   ];
   const INCIDENT_LOSS_TEXT = {
     local: {
-      summary: "Your own network dropped out",
+      summary: "Router or dish stopped answering",
       detail: "Your router or dish stopped answering too, so the problem is likely on your side of the dish.",
     },
     upstream: {
-      summary: "Starlink connection dropped",
+      summary: "Internet lost, router and dish still answering",
       detail:
         "Packets to both Cloudflare and Google were lost while your router and dish still answered, so the loss is likely between the dish and the internet.",
     },
     cloudflare: {
-      summary: "Cloudflare unreachable, Google fine",
+      summary: "Cloudflare lost, Google fine",
       detail: "Only the Cloudflare (1.1.1.1) path lost packets and Google (8.8.8.8) was fine, so it is likely not your Starlink link.",
     },
   };
@@ -734,14 +734,13 @@
     NO_SATS: "Dish could not find a satellite",
     OBSTRUCTED: "Something blocked the dish's view",
     NO_DOWNLINK: "Satellite link lost",
-    NO_PINGS: "Dish could not reach the internet",
+    NO_PINGS: "Dish reported: no contact with Starlink",
     ACTUATOR_ACTIVITY: "Dish was moving its motors",
     CABLE_TEST: "Dish was testing its cable",
     SLEEPING: "Dish was asleep",
     SKY_SEARCH: "Dish was searching for satellites",
     INHIBIT_RF: "Dish radio was switched off",
   };
-  const BAD_LAG_PEAK_MS = 200; // latency spikes at or above this read as bad lag
   const MAX_RENDERED_INCIDENTS = 200;
   // 24-hour, so the column stays one line whatever the locale default is.
   const INCIDENT_TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
@@ -788,9 +787,7 @@
       return text ? text.summary : "Packets lost";
     }
     if (incident.kind === "latency") {
-      const peakMs = Math.round(incident.peak_rtt_ms);
-      const label = peakMs >= BAD_LAG_PEAK_MS ? "Bad lag spike" : "Laggy moment";
-      return `${label}, ping hit ${peakMs} ms`;
+      return `Latency spike, peak ${Math.round(incident.peak_rtt_ms)} ms`;
     }
     return INCIDENT_OUTAGE_TEXT[incident.cause] || `Dish dropped out (${incident.cause || "unknown"})`;
   }
