@@ -133,6 +133,17 @@ const (
 	HandoverBurstMaxLateWake = 50 * time.Millisecond
 	DefaultHandoverLogPath   = DataDir + "/handovers.jsonl"
 
+	// Serving satellite (-track-satellite): clear the obstruction map each slot, match the traced arc to a track.
+	ServingClearDelay               = 300 * time.Millisecond // after the slot boundary
+	ServingReadInterval             = 1 * time.Second
+	ServingReadsPerSlot             = 14
+	ServingMinPixels                = 5
+	ServingMaxFitDeg                = 2.5 // median arc-to-track angle, about 2 map pixels
+	ServingMinMarginDeg             = 2.0 // the runner-up must fit at least this much worse
+	ServingMaxTimeOffsetS           = 4
+	ServingCandidateMinElevationDeg = 5.0
+	DefaultServingLogPath           = DataDir + "/serving.jsonl"
+
 	// SchedulerResyncAfter: a wake this far off plan restarts the 1/s schedule.
 	SchedulerResyncAfter = 3 * time.Second
 	SkipReportInterval   = 1 * time.Hour
