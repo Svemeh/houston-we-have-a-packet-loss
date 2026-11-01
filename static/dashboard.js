@@ -710,11 +710,38 @@
     { id: "latency", label: "Latency" },
     { id: "outage", label: "Dish" },
   ];
-  const INCIDENT_SCOPE_TEXT = {
-    local: "local — router or dish lost it too",
-    upstream: "upstream — both destinations lost it",
-    cloudflare: "Cloudflare path only",
+  const INCIDENT_LOSS_TEXT = {
+    local: {
+      summary: "Your own network dropped out",
+      detail: "Your router or dish stopped answering too, so the problem is likely on your side of the dish.",
+    },
+    upstream: {
+      summary: "Starlink connection dropped",
+      detail:
+        "Packets to both Cloudflare and Google were lost while your router and dish still answered, so the loss is likely between the dish and the internet.",
+    },
+    cloudflare: {
+      summary: "Cloudflare unreachable, Google fine",
+      detail: "Only the Cloudflare (1.1.1.1) path lost packets and Google (8.8.8.8) was fine, so it is likely not your Starlink link.",
+    },
   };
+  const INCIDENT_OUTAGE_TEXT = {
+    UNKNOWN: "Dish dropped out, reason unknown",
+    BOOTING: "Dish was starting up",
+    STOWED: "Dish was stowed",
+    THERMAL_SHUTDOWN: "Dish overheated and shut down",
+    NO_SCHEDULE: "Dish had no satellite assigned",
+    NO_SATS: "Dish could not find a satellite",
+    OBSTRUCTED: "Something blocked the dish's view",
+    NO_DOWNLINK: "Satellite link lost",
+    NO_PINGS: "Dish could not reach the internet",
+    ACTUATOR_ACTIVITY: "Dish was moving its motors",
+    CABLE_TEST: "Dish was testing its cable",
+    SLEEPING: "Dish was asleep",
+    SKY_SEARCH: "Dish was searching for satellites",
+    INHIBIT_RF: "Dish radio was switched off",
+  };
+  const BAD_LAG_PEAK_MS = 200; // latency spikes at or above this read as bad lag
   const MAX_RENDERED_INCIDENTS = 200;
   // 24-hour, so the column stays one line whatever the locale default is.
   const INCIDENT_TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
@@ -757,12 +784,28 @@
   // A loss burst says where it broke; the others describe themselves.
   function describeIncident(incident) {
     if (incident.kind === "loss") {
-      return INCIDENT_SCOPE_TEXT[incident.scope] || "loss";
+      const text = INCIDENT_LOSS_TEXT[incident.scope];
+      return text ? text.summary : "Packets lost";
     }
     if (incident.kind === "latency") {
-      return `Latency spike, peak ${Math.round(incident.peak_rtt_ms)} ms`;
+      const peakMs = Math.round(incident.peak_rtt_ms);
+      const label = peakMs >= BAD_LAG_PEAK_MS ? "Bad lag spike" : "Laggy moment";
+      return `${label}, ping hit ${peakMs} ms`;
     }
-    return `Dish reported ${incident.cause || "an outage"}`;
+    return INCIDENT_OUTAGE_TEXT[incident.cause] || `Dish dropped out (${incident.cause || "unknown"})`;
+  }
+
+  function incidentDetail(incident) {
+    const duration = formatDuration(incident.duration_s);
+    if (incident.kind === "loss") {
+      const text = INCIDENT_LOSS_TEXT[incident.scope];
+      const lost = incident.lost_count ? ` ${incident.lost_count} pings lost over ${duration}.` : "";
+      return `${text ? text.detail : "Packets were lost."}${lost}`;
+    }
+    if (incident.kind === "latency") {
+      return `Ping stayed high for ${duration} and peaked at ${Math.round(incident.peak_rtt_ms)} ms.`;
+    }
+    return `The dish reported an outage lasting ${duration}${incident.cause ? ` (${incident.cause})` : ""}.`;
   }
 
   function formatDuration(seconds) {
@@ -794,7 +837,7 @@
       text.textContent = describeIncident(incident);
       // The slot is a timing fact, not an attribution: no single incident can
       // be pinned on a handover, only the distribution of many of them.
-      text.title = `${describeIncident(incident)} · second :${incident.slot_second} of the satellite slot`;
+      text.title = `${incidentDetail(incident)} Started at second :${incident.slot_second} of the 15 s satellite cycle.`;
 
       const duration = document.createElement("span");
       duration.className = "incident-duration";
