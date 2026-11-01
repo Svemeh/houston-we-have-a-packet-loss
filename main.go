@@ -181,10 +181,12 @@ func main() {
 	} else {
 		log.Print("dish outages: not available from this collector, not polling")
 	}
+	var servingTracker *ServingTracker
 	if *trackSatellite {
 		if mapSource, ok := collector.(ObstructionMapSource); ok {
 			log.Print("serving satellite: tracking on; the dish's obstruction map is cleared every 15 s")
-			go NewServingTracker(mapSource, tracker, servingLogFile, *requestTimeout).Run(ctx)
+			servingTracker = NewServingTracker(mapSource, tracker, servingLogFile, *requestTimeout)
+			go servingTracker.Run(ctx)
 		} else {
 			log.Print("serving satellite: not available from this collector, not tracking")
 		}
@@ -195,6 +197,7 @@ func main() {
 		pingHub:          pingHub,
 		hopsHub:          hopsHub,
 		tracker:          tracker,
+		serving:          servingTracker,
 		telemetryLogPath: *logPath,
 		pingLogPath:      *pingLogPath,
 		hopsLogPath:      *hopsLogPath,

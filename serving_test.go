@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -222,5 +224,29 @@ func TestObserveSlotStatuses(t *testing.T) {
 	failing := &fakeMapSource{clearErr: errors.New("refused"), reads: []ObstructionMap{traced}}
 	if slot, _ := testServingTracker(failing, sky, start).observeSlot(context.Background(), start); slot.Status != ServingError || slot.Error != "refused" || failing.read != 0 {
 		t.Errorf("clear refused: %+v, read %d", slot, failing.read)
+	}
+}
+
+func TestServingHandler(t *testing.T) {
+	get := func(serving *ServingTracker) servingResponse {
+		recorder := httptest.NewRecorder()
+		newServingHandler(serving)(recorder, httptest.NewRequest("GET", RouteServing, nil))
+		var payload servingResponse
+		if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		return payload
+	}
+
+	if payload := get(nil); payload.Enabled || payload.Slot != nil {
+		t.Errorf("tracking off: %+v", payload)
+	}
+	tracker := &ServingTracker{}
+	if payload := get(tracker); !payload.Enabled || payload.Slot != nil {
+		t.Errorf("no slot yet: %+v", payload)
+	}
+	tracker.latest = &ServingSlot{Status: ServingMatched, Best: &ServingCandidate{Satellite: "STARLINK-36645"}}
+	if payload := get(tracker); payload.Slot == nil || payload.Slot.Best.Satellite != "STARLINK-36645" {
+		t.Errorf("latest slot: %+v", payload)
 	}
 }

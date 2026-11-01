@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	satellite "github.com/joshuaferrara/go-satellite"
@@ -285,6 +286,9 @@ type ServingTracker struct {
 	now     func() time.Time
 	sleep   func(ctx context.Context, wait time.Duration) bool
 	timeout time.Duration
+
+	mutex  sync.RWMutex
+	latest *ServingSlot
 }
 
 func NewServingTracker(source ObstructionMapSource, sky *SkyTracker, logFile *LogFile[ServingSlot], timeout time.Duration) *ServingTracker {
@@ -313,8 +317,21 @@ func (tracker *ServingTracker) Run(ctx context.Context) {
 		if !ok {
 			return
 		}
+		tracker.mutex.Lock()
+		tracker.latest = &slot
+		tracker.mutex.Unlock()
 		tracker.emit(slot)
 	}
+}
+
+// Latest returns the most recent finished slot; ok is false before the first one.
+func (tracker *ServingTracker) Latest() (slot ServingSlot, ok bool) {
+	tracker.mutex.RLock()
+	defer tracker.mutex.RUnlock()
+	if tracker.latest == nil {
+		return ServingSlot{}, false
+	}
+	return *tracker.latest, true
 }
 
 // observeSlot clears the map, reads it once a second and matches the arc. ok is false when ctx ended mid-slot.

@@ -88,6 +88,7 @@ const (
 
 	RouteSkyEvents = "/skyevents"
 	RouteLocation  = "/location"
+	RouteServing   = "/serving"
 
 	// Settings made from the dashboard, such as the location.
 	DefaultSettingsPath = DataDir + "/settings.json"

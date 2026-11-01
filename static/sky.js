@@ -3,6 +3,19 @@
 
   const SKY_EVENTS_URL = "/skyevents";
   const LOCATION_URL = "/location";
+  const SERVING_URL = "/serving";
+  const SERVING_POLL_MS = 5000;
+  const SERVING_STALE_MS = 45000; // three slots without a result
+  const SLOT_SECONDS = 15;
+  const SLOT_BOUNDARY_OFFSET = 12; // handovers at :12/:27/:42/:57 UTC
+  const SERVING_STATUS_TEXT = {
+    ambiguous: "no clear match this slot",
+    few_pixels: "arc too short this slot",
+    no_location: "set your location",
+    no_elements: "waiting on satellite elements",
+    unsupported_frame: "not supported on this dish",
+    error: "dish did not answer",
+  };
   const TO_RADIANS = Math.PI / 180;
 
   // Only 60° is decorative. Zenith, the service floor and the horizon all mean
@@ -34,6 +47,9 @@
     longitudeInput: document.getElementById("longitude-input"),
     locationStatus: document.getElementById("location-status"),
     changeLocation: document.getElementById("change-location"),
+    servingLine: document.getElementById("serving-line"),
+    servingName: document.getElementById("serving-name"),
+    servingDetail: document.getElementById("serving-detail"),
   };
 
   const setText = (element, text) => {
@@ -41,6 +57,7 @@
   };
 
   let latestSnapshot = null;
+  let latestServing = null;
 
   const readVariable = (name, fallback) => {
     const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -255,6 +272,33 @@
     drawing.restore();
   };
 
+  const servingSlot = () => {
+    const slot = latestServing && latestServing.enabled ? latestServing.slot : null;
+    if (!slot || Date.now() - Date.parse(slot.slot_start) > SERVING_STALE_MS) return null;
+    return slot;
+  };
+
+  const drawServing = (objects, centreX, centreY, radius) => {
+    const slot = servingSlot();
+    if (!slot || slot.status !== "matched") return;
+    const object = objects.find((candidate) => candidate.name === slot.best.satellite);
+    if (!object) return;
+    const point = project(object.az, object.el, centreX, centreY, radius);
+    drawing.save();
+    drawing.strokeStyle = theme.amber;
+    drawing.globalAlpha = 0.8;
+    drawing.lineWidth = 1.5;
+    drawing.beginPath();
+    drawing.moveTo(centreX, centreY);
+    drawing.lineTo(point.x, point.y);
+    drawing.stroke();
+    drawing.globalAlpha = 1;
+    drawing.beginPath();
+    drawing.arc(point.x, point.y, 7, 0, Math.PI * 2);
+    drawing.stroke();
+    drawing.restore();
+  };
+
   const render = () => {
     const size = canvas.clientWidth;
     if (!size) return;
@@ -271,6 +315,7 @@
     drawGraticule(centreX, centreY, radius);
     if (latestSnapshot) {
       drawSatellites(latestSnapshot.objects || [], centreX, centreY, radius);
+      drawServing(latestSnapshot.objects || [], centreX, centreY, radius);
     }
   };
 
@@ -424,6 +469,44 @@
     }
   };
 
+  // ---- Serving satellite ------------------------------------------------
+
+  const secondsToHandover = () => {
+    const into = ((Date.now() / 1000 - SLOT_BOUNDARY_OFFSET) % SLOT_SECONDS + SLOT_SECONDS) % SLOT_SECONDS;
+    return Math.ceil(SLOT_SECONDS - into);
+  };
+
+  const updateServingReadout = () => {
+    if (!elements.servingLine) return;
+    const enabled = Boolean(latestServing && latestServing.enabled);
+    elements.servingLine.hidden = !enabled;
+    if (!enabled) return;
+
+    const slot = servingSlot();
+    const handover = `handover in ${secondsToHandover()} s`;
+    if (slot && slot.status === "matched") {
+      const live = ((latestSnapshot && latestSnapshot.objects) || []).find((object) => object.name === slot.best.satellite);
+      const position = live || slot.best;
+      setText(elements.servingName, slot.best.satellite);
+      setText(elements.servingDetail, `el ${Math.round(position.el)}° · az ${Math.round(position.az)}° · ${handover}`);
+    } else {
+      setText(elements.servingName, "—");
+      const reason = slot ? SERVING_STATUS_TEXT[slot.status] || slot.status : "waiting for the first slot";
+      setText(elements.servingDetail, `${reason} · ${handover}`);
+    }
+  };
+
+  const loadServing = async () => {
+    try {
+      const response = await fetch(SERVING_URL, { cache: "no-store" });
+      if (!response.ok) return;
+      latestServing = await response.json();
+      render();
+    } catch (error) {
+      console.warn("serving poll failed", error);
+    }
+  };
+
   // ---- Stream ----------------------------------------------------------
 
   const connect = () => {
@@ -448,4 +531,7 @@
   setUpLocationPanel();
   loadLocation();
   connect();
+  loadServing();
+  setInterval(loadServing, SERVING_POLL_MS);
+  setInterval(updateServingReadout, 1000);
 })();
