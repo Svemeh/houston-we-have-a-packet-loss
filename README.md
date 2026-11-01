@@ -145,7 +145,8 @@ ICMP needs permission on Linux: `sudo sysctl -w net.ipv4.ping_group_range="0 214
 | `-router` | `auto` | LAN router for the hop pinger: `auto` (default gateway), an IP, or `none` |
 | `-ping-target` | `1.1.1.1` | Host this machine pings |
 | `-no-ping` / `-no-hops` | off | Disable the pingers (`-no-hops` also disables the rollup) |
-| `-log`, `-ping-log`, `-hops-log`, `-outage-log`, `-rollup-log` | `data/*.jsonl` | Log locations |
+| `-track-satellite` | off | Identify the serving satellite every 15 s (clears the dish's obstruction map each slot) |
+| `-log`, `-ping-log`, `-hops-log`, `-outage-log`, `-rollup-log`, `-handover-log`, `-serving-log` | `data/*.jsonl` | Log locations |
 | `-version` | | Print the version and exit |
 
 Intervals, retention and thresholds live in [`const.go`](const.go).
@@ -171,6 +172,7 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `ping.go` · `hops.go` | Single-target and per-hop ICMP pingers |
 | `gateway*.go` | Finds the LAN router from the default gateway |
 | `rollup.go` | Hourly summary with handover-slot bucketing |
+| `serving.go` | Serving satellite: obstruction-map reset, arc matching, `serving.jsonl` |
 | `logFile.go` | JSONL persistence, pruning, range reads, downsampling |
 | `hub.go` · `server.go` | SSE fan-out and HTTP routes |
 | `sky.go` · `settings.go` | TLE fetch/cache and SGP4 propagation · location saved from the dashboard |
@@ -208,4 +210,5 @@ A `v*` tag runs the same CI checks before [`release.yml`](.github/workflows/rele
 
 - The hourly rollup is written to disk but not yet shown on the dashboard.
 - The dish's own drop counter reports ~3 s late relative to the pings.
+- With `-track-satellite`, Houston clears the dish's obstruction map every 15 s. The dish then reports little or no obstruction, so the obstruction % and "obstructed" state, in Houston and in the Starlink app, are unreliable while it runs. The resets don't affect how the dish works (confirmed by UVic's LEO-NET lab).
 

@@ -30,6 +30,8 @@ func main() {
 	outageLogPath := flag.String("outage-log", DefaultOutageLogPath, "dish outage log file (JSONL)")
 	rollupLogPath := flag.String("rollup-log", DefaultRollupLogPath, "hourly hop summary log file (JSONL)")
 	handoverLogPath := flag.String("handover-log", DefaultHandoverLogPath, "handover burst log file (JSONL)")
+	trackSatellite := flag.Bool("track-satellite", DefaultTrackSatellite, "identify the serving satellite every 15 s (clears the dish's obstruction map each slot)")
+	servingLogPath := flag.String("serving-log", DefaultServingLogPath, "serving satellite log file (JSONL)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -90,6 +92,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer handoverLogFile.Close()
+
+	servingLogFile, err := OpenLogFile[ServingSlot](*servingLogPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ opening serving log file %q: %v\n", *servingLogPath, err)
+		os.Exit(1)
+	}
+	defer servingLogFile.Close()
 
 	outageLogFile, err := OpenLogFile[DishOutage](*outageLogPath)
 	if err != nil {
@@ -153,7 +162,7 @@ func main() {
 	defer stopSignalWatch()
 
 	go pollLoop(ctx, collector, hub, logFile, tracker)
-	go pruneLoop(ctx, logFile, pingLogFile, hopsLogFile, outageLogFile, handoverLogFile)
+	go pruneLoop(ctx, logFile, pingLogFile, hopsLogFile, outageLogFile, handoverLogFile, servingLogFile)
 	go tracker.Run(ctx)
 	if !*noPing {
 		go NewPinger(*pingTarget, pingHub, pingLogFile).Run(ctx)
@@ -172,12 +181,23 @@ func main() {
 	} else {
 		log.Print("dish outages: not available from this collector, not polling")
 	}
+	var servingTracker *ServingTracker
+	if *trackSatellite {
+		if mapSource, ok := collector.(ObstructionMapSource); ok {
+			log.Print("serving satellite: tracking on; the dish's obstruction map is cleared every 15 s")
+			servingTracker = NewServingTracker(mapSource, tracker, servingLogFile, *requestTimeout)
+			go servingTracker.Run(ctx)
+		} else {
+			log.Print("serving satellite: not available from this collector, not tracking")
+		}
+	}
 
 	if err := serveDashboard(ctx, *webListenAddress, dashboardSources{
 		telemetryHub:     hub,
 		pingHub:          pingHub,
 		hopsHub:          hopsHub,
 		tracker:          tracker,
+		serving:          servingTracker,
 		telemetryLogPath: *logPath,
 		pingLogPath:      *pingLogPath,
 		hopsLogPath:      *hopsLogPath,

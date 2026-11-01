@@ -28,6 +28,7 @@ type dashboardSources struct {
 	pingHub      *Hub[PingSample]
 	hopsHub      *Hub[HopSample]
 	tracker      *SkyTracker
+	serving      *ServingTracker // nil when tracking is off
 
 	// Paths rather than sources, because the raw-log routes stream the file
 	// itself rather than parsing it.
@@ -73,6 +74,7 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 
 	router.HandleFunc(RouteSkyEvents, newSkyStreamHandler(sources.tracker))
 	router.HandleFunc(RouteLocation, newLocationHandler(sources.tracker, sources.settingsPath))
+	router.HandleFunc(RouteServing, newServingHandler(sources.serving))
 
 	server := &http.Server{Addr: listenAddress, Handler: router}
 
@@ -436,5 +438,25 @@ func newLocationHandler(tracker *SkyTracker, settingsPath string) http.HandlerFu
 		log.Printf("sky: location set to %.2f, %.2f from the dashboard", observer.LatitudeDeg, observer.LongitudeDeg)
 		tracker.SetObserver(observer, LocationFromSettings)
 		respond(response)
+	}
+}
+
+type servingResponse struct {
+	Enabled bool         `json:"enabled"`
+	Slot    *ServingSlot `json:"slot,omitempty"`
+}
+
+// newServingHandler serves RouteServing: whether tracking is on, and the latest slot.
+func newServingHandler(serving *ServingTracker) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		payload := servingResponse{Enabled: serving != nil}
+		if serving != nil {
+			if slot, ok := serving.Latest(); ok {
+				payload.Slot = &slot
+			}
+		}
+		response.Header().Set("Content-Type", "application/json")
+		response.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(response).Encode(payload)
 	}
 }
