@@ -180,20 +180,17 @@ func pixelDirection(row, col, rows int, maxThetaDeg float64) (azimuthDeg, elevat
 	return azimuthDeg, 90 - zenithDeg
 }
 
-// lookAngles propagates one satellite to a whole second and returns where it sits in the observer's sky.
+// lookAngles propagates one satellite to the nearest whole second and returns where it sits in the observer's sky.
 func lookAngles(propagator satellite.Satellite, observer Observer, at time.Time) (azimuthDeg, elevationDeg, rangeKm float64, ok bool) {
-	utc := at.UTC()
+	utc := at.Round(time.Second).UTC()
 	year, month, day := utc.Date()
 	hour, minute, second := utc.Clock()
 	position, _ := satellite.Propagate(propagator, year, int(month), day, hour, minute, second)
 	if math.IsNaN(position.X) || math.IsNaN(position.Y) || math.IsNaN(position.Z) {
 		return 0, 0, 0, false
 	}
-	look := satellite.ECIToLookAngles(position, satellite.LatLong{
-		Latitude:  observer.LatitudeDeg * satellite.DEG2RAD,
-		Longitude: observer.LongitudeDeg * satellite.DEG2RAD,
-	}, 0, satellite.JDay(year, int(month), day, hour, minute, second))
-	return math.Mod(look.Az*satellite.RAD2DEG+360, 360), look.El * satellite.RAD2DEG, look.Rg, true
+	azimuthDeg, elevationDeg, rangeKm = lookFrom(position, observer, satellite.JDay(year, int(month), day, hour, minute, second))
+	return azimuthDeg, elevationDeg, rangeKm, true
 }
 
 // servingCandidates returns the tracked satellites above minElevationDeg at a moment; ok is false without a location.

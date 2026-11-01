@@ -84,3 +84,37 @@ func TestTLEExponent(t *testing.T) {
 		t.Error("1e12 should not fit")
 	}
 }
+
+func TestLookFromUsesTheEllipsoid(t *testing.T) {
+	observer := Observer{LatitudeDeg: 60.19, LongitudeDeg: 12.00}
+	julianDay := satellite.JDay(2026, 11, 1, 2, 0, 0)
+	siderealAngle := satellite.ThetaG_JD(julianDay)
+	latitude, longitude := observer.LatitudeDeg*satellite.DEG2RAD, observer.LongitudeDeg*satellite.DEG2RAD
+	primeVertical := wgs84EquatorialRadiusKm / math.Sqrt(1-wgs84EccentricitySquared*math.Sin(latitude)*math.Sin(latitude))
+	site := [3]float64{
+		primeVertical * math.Cos(latitude) * math.Cos(longitude),
+		primeVertical * math.Cos(latitude) * math.Sin(longitude),
+		primeVertical * (1 - wgs84EccentricitySquared) * math.Sin(latitude),
+	}
+	up := [3]float64{math.Cos(latitude) * math.Cos(longitude), math.Cos(latitude) * math.Sin(longitude), math.Sin(latitude)}
+	north := [3]float64{-math.Sin(latitude) * math.Cos(longitude), -math.Sin(latitude) * math.Sin(longitude), math.Cos(latitude)}
+	toTEME := func(offset [3]float64) satellite.Vector3 {
+		x, y, z := site[0]+offset[0], site[1]+offset[1], site[2]+offset[2]
+		return satellite.Vector3{
+			X: x*math.Cos(siderealAngle) - y*math.Sin(siderealAngle),
+			Y: x*math.Sin(siderealAngle) + y*math.Cos(siderealAngle),
+			Z: z,
+		}
+	}
+
+	_, elevation, rangeKm := lookFrom(toTEME([3]float64{550 * up[0], 550 * up[1], 550 * up[2]}), observer, julianDay)
+	if math.Abs(elevation-90) > 1e-6 || math.Abs(rangeKm-550) > 1e-6 {
+		t.Errorf("straight up: el %.6f, range %.6f", elevation, rangeKm)
+	}
+	azimuth, elevation, _ := lookFrom(toTEME([3]float64{
+		500*north[0] + 500*up[0], 500*north[1] + 500*up[1], 500*north[2] + 500*up[2],
+	}), observer, julianDay)
+	if math.Abs(azimuth) > 1e-6 && math.Abs(azimuth-360) > 1e-6 || math.Abs(elevation-45) > 1e-6 {
+		t.Errorf("north at 45°: az %.6f, el %.6f", azimuth, elevation)
+	}
+}
