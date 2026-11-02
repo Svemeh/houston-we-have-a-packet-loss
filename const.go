@@ -142,6 +142,7 @@ const (
 	ServingMinPixels                = 5
 	ServingMaxFitDeg                = 2.5 // median arc-to-track angle, about 2 map pixels
 	ServingMinMarginDeg             = 2.0 // the runner-up must fit at least this much worse
+	ServingMinTimeOffsetS           = -10 // satellites run ahead of old elements, about 1 s per 12 h of element age
 	ServingMaxTimeOffsetS           = 4
 	ServingCandidateMinElevationDeg = 5.0
 	DefaultServingLogPath           = DataDir + "/serving.jsonl"

@@ -217,7 +217,7 @@ func matchArc(pixels []arcPixel, candidates []trackedSatellite, observer Observe
 	errors := make([]float64, len(pixels))
 	for _, tracked := range candidates {
 		fit, fitOffset := math.Inf(1), 0
-		for offset := -ServingMaxTimeOffsetS; offset <= ServingMaxTimeOffsetS; offset++ {
+		for offset := ServingMinTimeOffsetS; offset <= ServingMaxTimeOffsetS; offset++ {
 			usable := true
 			for i, pixel := range pixels {
 				azimuthDeg, elevationDeg, _, ok := lookAngles(tracked.propagator, observer, pixel.at.Add(time.Duration(offset)*time.Second))

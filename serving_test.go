@@ -140,6 +140,18 @@ func TestMatchArcPicksTheTracingSatellite(t *testing.T) {
 	}
 }
 
+func TestMatchArcFindsOldElementLag(t *testing.T) {
+	candidates := testCandidates(t)
+	moment := time.Date(2026, 10, 24, 8, 0, 0, 0, time.UTC)
+	observer := observerUnder(candidates[0].propagator, moment)
+	pixels := syntheticArc(candidates[0].propagator, observer, moment, -8*time.Second)
+
+	best, _ := matchArc(pixels, candidates, observer)
+	if best == nil || best.Satellite != candidates[0].name || best.TimeOffsetS != -8 || best.FitDeg > 0.3 {
+		t.Fatalf("best = %+v", best)
+	}
+}
+
 func TestClassifyMatch(t *testing.T) {
 	cases := []struct {
 		best, runnerUp *ServingCandidate
