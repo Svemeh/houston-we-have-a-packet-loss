@@ -70,6 +70,10 @@ const (
 	HorizonAngularRadiusDeg  = 23.0 // arccos(Re/(Re+h)) — how far a sub-satellite point can be and still be visible
 	ServiceFloorElevationDeg = 25.0 // lowest elevation the dish serves from (measured 25.5° over ~8,500 slots, Gen 3 Standard)
 
+	// Service floor learned from matched serving slots (-track-satellite); ServiceFloorElevationDeg until there are enough.
+	ServingFloorMinSlots   = 1000  // about 4 h of tracking
+	ServingFloorPercentile = 0.001 // floor is this low percentile, so a few bad matches can't drag it down
+
 	// Ping: ICMP echo from this machine, independent of the dish.
 	// 1.1.1.1 is anycast, so it lands on the nearest Cloudflare edge.
 	// ~90 bytes per sample, 3600 per hour = ~320KB/hour, same retention as the dish log.

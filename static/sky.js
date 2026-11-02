@@ -155,7 +155,7 @@
       drawing.textAlign = "center";
       drawing.textBaseline = "bottom";
       drawing.fillText(
-        `${latestSnapshot.service_floor_deg}° floor`,
+        `${latestSnapshot.service_floor_deg}° floor${latestSnapshot.service_floor_measured ? " (measured)" : ""}`,
         centreX,
         centreY - radiusForElevation(latestSnapshot.service_floor_deg, radius) - 4
       );
@@ -276,7 +276,9 @@
   };
 
   const describeCone = (snapshot) => {
-    const usable = `dish uses the sky above ${snapshot.service_floor_deg}°`;
+    const usable = snapshot.service_floor_measured
+      ? `dish serves from above ${snapshot.service_floor_deg}° (measured)`
+      : `dish uses the sky above ${snapshot.service_floor_deg}°`;
     if (snapshot.cone_is_assumed) return `${usable} · panel aim not reported yet`;
     const tiltDeg = Math.round(90 - snapshot.cone_elevation_deg);
     const compass = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(snapshot.cone_azimuth_deg / 45) % 8];

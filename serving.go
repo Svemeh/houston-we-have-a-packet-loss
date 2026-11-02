@@ -294,10 +294,12 @@ type ServingTracker struct {
 
 	mutex  sync.RWMutex
 	latest *ServingSlot
+	floor  servingFloor
 }
 
-func NewServingTracker(source ObstructionMapSource, sky *SkyTracker, logFile *LogFile[ServingSlot], timeout time.Duration) *ServingTracker {
-	return &ServingTracker{
+// NewServingTracker starts from prior slots so the measured service floor survives a restart.
+func NewServingTracker(source ObstructionMapSource, sky *SkyTracker, logFile *LogFile[ServingSlot], timeout time.Duration, prior []ServingSlot) *ServingTracker {
+	tracker := &ServingTracker{
 		source: source,
 		sky:    sky,
 		emit: func(slot ServingSlot) {
@@ -308,6 +310,17 @@ func NewServingTracker(source ObstructionMapSource, sky *SkyTracker, logFile *Lo
 		now:     time.Now,
 		sleep:   sleepContext,
 		timeout: timeout,
+	}
+	for _, slot := range prior {
+		tracker.floor.add(slot)
+	}
+	tracker.updateServiceFloor()
+	return tracker
+}
+
+func (tracker *ServingTracker) updateServiceFloor() {
+	if floorDeg, ok := tracker.floor.measure(tracker.now()); ok {
+		tracker.sky.SetServiceFloor(floorDeg)
 	}
 }
 
@@ -326,6 +339,8 @@ func (tracker *ServingTracker) Run(ctx context.Context) {
 		tracker.latest = &slot
 		tracker.mutex.Unlock()
 		tracker.emit(slot)
+		tracker.floor.add(slot)
+		tracker.updateServiceFloor()
 	}
 }
 

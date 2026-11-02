@@ -162,6 +162,8 @@ type SkySnapshot struct {
 	ConeAzimuthDeg   float64     `json:"cone_azimuth_deg"`
 	ConeElevationDeg float64     `json:"cone_elevation_deg"`
 	ServiceFloorDeg  float64     `json:"service_floor_deg"`
+	// ServiceFloorMeasured is true once the floor comes from the satellites the dish actually used.
+	ServiceFloorMeasured bool `json:"service_floor_measured"`
 	// ConeIsAssumed is true while we're pointing the cone at zenith because the
 	// dish hasn't told us where it's actually aimed.
 	ConeIsAssumed bool `json:"cone_is_assumed"`
@@ -192,6 +194,8 @@ type SkyTracker struct {
 	coneAzimuthDeg   float64
 	coneElevationDeg float64
 	haveBoresight    bool
+
+	measuredFloorDeg float64 // 0 until measured
 }
 
 func NewSkyTracker(observer Observer, locationSource string) *SkyTracker {
@@ -214,6 +218,13 @@ func (tracker *SkyTracker) SetBoresight(azimuthDeg, elevationDeg float64) {
 	tracker.coneAzimuthDeg = azimuthDeg
 	tracker.coneElevationDeg = elevationDeg
 	tracker.haveBoresight = true
+}
+
+// SetServiceFloor replaces ServiceFloorElevationDeg with the floor measured from serving slots.
+func (tracker *SkyTracker) SetServiceFloor(floorDeg float64) {
+	tracker.mutex.Lock()
+	defer tracker.mutex.Unlock()
+	tracker.measuredFloorDeg = floorDeg
 }
 
 // Location returns the current position and where it came from; source is ""
@@ -576,6 +587,10 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 	coneAzimuthDeg := tracker.coneAzimuthDeg
 	coneElevationDeg := tracker.coneElevationDeg
 	haveBoresight := tracker.haveBoresight
+	floorDeg, floorMeasured := ServiceFloorElevationDeg, tracker.measuredFloorDeg > 0
+	if floorMeasured {
+		floorDeg = tracker.measuredFloorDeg
+	}
 	observer := tracker.observer
 	locationSet := tracker.locationSource != ""
 	tracker.mutex.RUnlock()
@@ -589,8 +604,10 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 		ElementsAgeS:     -1,
 		ConeAzimuthDeg:   coneAzimuthDeg,
 		ConeElevationDeg: coneElevationDeg,
-		ServiceFloorDeg:  ServiceFloorElevationDeg,
+		ServiceFloorDeg:  roundTo(floorDeg, 1),
 		ConeIsAssumed:    !haveBoresight,
+
+		ServiceFloorMeasured: floorMeasured,
 	}
 	if !fetchedAt.IsZero() {
 		elementAge := now.Sub(fetchedAt)
@@ -617,7 +634,7 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 			continue // below the horizon, which is most of them
 		}
 
-		inCone := elevationDeg >= ServiceFloorElevationDeg
+		inCone := elevationDeg >= floorDeg
 		if inCone {
 			snapshot.InConeCount++
 		}
