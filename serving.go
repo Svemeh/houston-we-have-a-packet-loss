@@ -59,6 +59,14 @@ type ServingSlot struct {
 	Best     *ServingCandidate `json:"best,omitempty"`
 	RunnerUp *ServingCandidate `json:"runner_up,omitempty"`
 	Error    string            `json:"error,omitempty"`
+	Arc      []ArcPoint        `json:"arc,omitempty"`
+}
+
+// ArcPoint is one traced cell, kept for slots that didn't match so they can be rechecked later.
+type ArcPoint struct {
+	OffsetMs     int     `json:"ms"`
+	AzimuthDeg   float64 `json:"az"`
+	ElevationDeg float64 `json:"el"`
 }
 
 func (slot ServingSlot) SampleTime() time.Time { return slot.Start }
@@ -385,15 +393,26 @@ func (tracker *ServingTracker) observeSlot(ctx context.Context, start time.Time)
 	slot.Pixels = len(pixels)
 	if len(pixels) < ServingMinPixels {
 		slot.Status = ServingFewPixels
-		return slot, true
-	}
-
-	candidates, observer, locationSet := tracker.sky.servingCandidates(start.Add(HandoverSlotSeconds*time.Second/2), ServingCandidateMinElevationDeg)
-	if !locationSet {
+	} else if candidates, observer, locationSet := tracker.sky.servingCandidates(start.Add(HandoverSlotSeconds*time.Second/2), ServingCandidateMinElevationDeg); !locationSet {
 		slot.Status = ServingNoLocation
-		return slot, true
+	} else {
+		slot.Best, slot.RunnerUp = matchArc(pixels, candidates, observer)
+		slot.Status = classifyMatch(slot.Best, slot.RunnerUp)
 	}
-	slot.Best, slot.RunnerUp = matchArc(pixels, candidates, observer)
-	slot.Status = classifyMatch(slot.Best, slot.RunnerUp)
+	if slot.Status != ServingMatched {
+		slot.Arc = arcPoints(start, pixels)
+	}
 	return slot, true
+}
+
+func arcPoints(start time.Time, pixels []arcPixel) []ArcPoint {
+	points := make([]ArcPoint, len(pixels))
+	for i, pixel := range pixels {
+		points[i] = ArcPoint{
+			OffsetMs:     int(pixel.at.Sub(start).Milliseconds()),
+			AzimuthDeg:   roundTo(pixel.azimuthDeg, 2),
+			ElevationDeg: roundTo(pixel.elevationDeg, 2),
+		}
+	}
+	return points
 }

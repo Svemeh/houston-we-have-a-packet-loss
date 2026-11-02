@@ -229,7 +229,7 @@ func TestObserveSlotStatuses(t *testing.T) {
 
 	traced.Frame = obstructionFrameEarth
 	noElements := &fakeMapSource{reads: []ObstructionMap{traced}}
-	if slot, _ := testServingTracker(noElements, sky, start).observeSlot(context.Background(), start); slot.Status != ServingNoElements || slot.Pixels != 10 {
+	if slot, _ := testServingTracker(noElements, sky, start).observeSlot(context.Background(), start); slot.Status != ServingNoElements || slot.Pixels != 10 || len(slot.Arc) != 10 || slot.Arc[0].OffsetMs != 800 {
 		t.Errorf("no elements loaded: %+v", slot)
 	}
 
