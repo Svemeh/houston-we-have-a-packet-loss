@@ -159,7 +159,6 @@ type SkySnapshot struct {
 	CatalogCount     int         `json:"catalog_count"`      // elements in the last fetch
 	ElementsAgeS     int64       `json:"elements_age_s"`     // -1 when we have none
 	ElementsAreStale bool        `json:"elements_are_stale"` // older than TLEStaleAfter
-	ConeHalfAngleDeg float64     `json:"cone_half_angle_deg"`
 	ConeAzimuthDeg   float64     `json:"cone_azimuth_deg"`
 	ConeElevationDeg float64     `json:"cone_elevation_deg"`
 	ServiceFloorDeg  float64     `json:"service_floor_deg"`
@@ -588,7 +587,6 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 		TrackedCount:     len(elements),
 		CatalogCount:     catalogCount,
 		ElementsAgeS:     -1,
-		ConeHalfAngleDeg: DefaultConeHalfAngleDeg,
 		ConeAzimuthDeg:   coneAzimuthDeg,
 		ConeElevationDeg: coneElevationDeg,
 		ServiceFloorDeg:  ServiceFloorElevationDeg,
@@ -619,9 +617,7 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 			continue // below the horizon, which is most of them
 		}
 
-		// Inside the dish's field of view, and high enough for it to bother.
-		inCone := elevationDeg >= ServiceFloorElevationDeg &&
-			angularSeparation(azimuthDeg, elevationDeg, coneAzimuthDeg, coneElevationDeg) <= DefaultConeHalfAngleDeg
+		inCone := elevationDeg >= ServiceFloorElevationDeg
 		if inCone {
 			snapshot.InConeCount++
 		}

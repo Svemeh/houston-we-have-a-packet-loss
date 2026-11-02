@@ -18,9 +18,9 @@
   };
   const TO_RADIANS = Math.PI / 180;
 
-  // Only 60° is decorative. Zenith, the service floor and the horizon all mean
-  // something on their own, so a 30° ring would just crowd the floor.
-  const ELEVATION_RINGS = [15, 30, 45, 60];
+  // Zenith, the 25° service floor and the horizon mean something on their own;
+  // 15° and 30° rings would crowd the floor label.
+  const ELEVATION_RINGS = [45, 60];
   const CARDINAL_POINTS = [
     { label: "N", azimuth: 0 },
     { label: "E", azimuth: 90 },
@@ -171,80 +171,28 @@
     }
   };
 
-  // Returns points along the cone's rim as az/el, built as 3D unit vectors
-  // around the axis. Works for any aim, zenith included.
-  const coneRimPoints = (axisAzimuthDeg, axisElevationDeg, halfAngleDeg, samples = 180) => {
-    const azimuth = axisAzimuthDeg * TO_RADIANS;
-    const elevation = axisElevationDeg * TO_RADIANS;
-    const halfAngle = halfAngleDeg * TO_RADIANS;
-
-    const axis = [Math.cos(elevation) * Math.sin(azimuth), Math.cos(elevation) * Math.cos(azimuth), Math.sin(elevation)];
-    const across = [Math.cos(azimuth), -Math.sin(azimuth), 0];
-    const up = [
-      axis[1] * across[2] - axis[2] * across[1],
-      axis[2] * across[0] - axis[0] * across[2],
-      axis[0] * across[1] - axis[1] * across[0],
-    ];
-
-    const points = [];
-    for (let step = 0; step <= samples; step++) {
-      const bearing = (step / samples) * 2 * Math.PI;
-      const rim = [0, 1, 2].map((i) =>
-        Math.cos(halfAngle) * axis[i] +
-        Math.sin(halfAngle) * (Math.cos(bearing) * up[i] + Math.sin(bearing) * across[i])
-      );
-      points.push({
-        az: ((Math.atan2(rim[0], rim[1]) / TO_RADIANS) + 360) % 360,
-        el: Math.asin(Math.max(-1, Math.min(1, rim[2]))) / TO_RADIANS,
-      });
-    }
-    return points;
-  };
-
-  const drawCone = (snapshot, centreX, centreY, radius) => {
-    const rim = coneRimPoints(
-      snapshot.cone_azimuth_deg,
-      snapshot.cone_elevation_deg,
-      snapshot.cone_half_angle_deg
-    );
-
+  // The sky the dish actually serves from: everything above the service floor,
+  // measured from which satellites it used. The cross marks where the panel faces.
+  const drawFieldOfView = (snapshot, centreX, centreY, radius) => {
     drawing.save();
-    // Clip to the service floor rather than the horizon. Below it the dish
-    // won't use a satellite even when the cone covers it, so shading that
-    // band would claim more sky than is actually in play.
-    const floorDeg = snapshot.service_floor_deg > 0 ? snapshot.service_floor_deg : 0;
     drawing.beginPath();
-    drawing.arc(centreX, centreY, radiusForElevation(floorDeg, radius), 0, Math.PI * 2);
-    drawing.clip();
-
-    drawing.beginPath();
-    rim.forEach((point, index) => {
-      const projected = project(point.az, point.el, centreX, centreY, radius);
-      if (index === 0) drawing.moveTo(projected.x, projected.y);
-      else drawing.lineTo(projected.x, projected.y);
-    });
-    drawing.closePath();
-
+    drawing.arc(centreX, centreY, radiusForElevation(snapshot.service_floor_deg, radius), 0, Math.PI * 2);
     drawing.fillStyle = "rgba(245, 183, 64, 0.05)";
     drawing.fill();
-
-    // Dashed, because the aim is an assumption rather than a measurement.
-    drawing.setLineDash([4, 4]);
     drawing.strokeStyle = "rgba(245, 183, 64, 0.45)";
     drawing.lineWidth = 1;
     drawing.stroke();
 
-    // Where we think the dish is actually pointed.
-    const axis = project(snapshot.cone_azimuth_deg, snapshot.cone_elevation_deg, centreX, centreY, radius);
-    drawing.setLineDash([]);
-    drawing.strokeStyle = "rgba(245, 183, 64, 0.55)";
-    drawing.beginPath();
-    drawing.moveTo(axis.x - 5, axis.y);
-    drawing.lineTo(axis.x + 5, axis.y);
-    drawing.moveTo(axis.x, axis.y - 5);
-    drawing.lineTo(axis.x, axis.y + 5);
-    drawing.stroke();
-
+    if (!snapshot.cone_is_assumed) {
+      const aim = project(snapshot.cone_azimuth_deg, snapshot.cone_elevation_deg, centreX, centreY, radius);
+      drawing.strokeStyle = "rgba(245, 183, 64, 0.55)";
+      drawing.beginPath();
+      drawing.moveTo(aim.x - 5, aim.y);
+      drawing.lineTo(aim.x + 5, aim.y);
+      drawing.moveTo(aim.x, aim.y - 5);
+      drawing.lineTo(aim.x, aim.y + 5);
+      drawing.stroke();
+    }
     drawing.restore();
   };
 
@@ -309,8 +257,8 @@
     const centreY = size / 2;
     const radius = size / 2 - 22; // room for the cardinal labels
 
-    if (latestSnapshot && latestSnapshot.cone_half_angle_deg > 0) {
-      drawCone(latestSnapshot, centreX, centreY, radius);
+    if (latestSnapshot && latestSnapshot.service_floor_deg > 0) {
+      drawFieldOfView(latestSnapshot, centreX, centreY, radius);
     }
     drawGraticule(centreX, centreY, radius);
     if (latestSnapshot) {
@@ -328,11 +276,13 @@
   };
 
   const describeCone = (snapshot) => {
+    const usable = `dish uses the sky above ${snapshot.service_floor_deg}°`;
+    if (snapshot.cone_is_assumed) return `${usable} · panel aim not reported yet`;
     const tiltDeg = Math.round(90 - snapshot.cone_elevation_deg);
-    if (snapshot.cone_is_assumed) return `${snapshot.cone_half_angle_deg}° cone, zenith (no boresight yet)`;
     const compass = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(snapshot.cone_azimuth_deg / 45) % 8];
-    return `${snapshot.cone_half_angle_deg}° cone, ${tiltDeg}° toward ${compass}`;
+    return `${usable} · panel tilted ${tiltDeg}° toward ${compass}`;
   };
+
 
   const applySnapshot = (snapshot) => {
     // Set from another tab, or cleared by a restart: ask the server again.
@@ -356,7 +306,7 @@
       setText(elements.subtext, "waiting on celestrak");
     } else if (snapshot.in_cone_count === 0) {
       setStripState("state-caution");
-      setText(elements.headline, "NOTHING IN THE CONE");
+      setText(elements.headline, `NOTHING ABOVE ${snapshot.service_floor_deg}°`);
       setText(elements.subtext, `${aboveHorizon} above horizon`);
     } else {
       setStripState("state-nominal");

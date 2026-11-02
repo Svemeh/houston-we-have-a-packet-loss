@@ -68,8 +68,7 @@ const (
 
 	// Geometry at the Starlink operational altitude (~550 km).
 	HorizonAngularRadiusDeg  = 23.0 // arccos(Re/(Re+h)) — how far a sub-satellite point can be and still be visible
-	ServiceFloorElevationDeg = 10.0 // below this the dish won't use it
-	DefaultConeHalfAngleDeg  = 55.0 // Standard/Mini ~110° full FOV; Flat HP ~140°
+	ServiceFloorElevationDeg = 25.0 // lowest elevation the dish serves from (measured 25.5° over ~8,500 slots, Gen 3 Standard)
 
 	// Ping: ICMP echo from this machine, independent of the dish.
 	// 1.1.1.1 is anycast, so it lands on the nearest Cloudflare edge.

@@ -230,7 +230,7 @@ func pollLoop(ctx context.Context, collector TelemetryCollector, hub *Hub[Teleme
 		if sample.BoresightValid {
 			tracker.SetBoresight(sample.BoresightAzimuthDeg, sample.BoresightElevationDeg)
 			if !loggedBoresight {
-				log.Printf("sky: dish reports boresight az %.2f° el %.2f° — cone follows it",
+				log.Printf("sky: dish reports boresight az %.2f° el %.2f° — sky view shows its tilt",
 					sample.BoresightAzimuthDeg, sample.BoresightElevationDeg)
 				loggedBoresight = true
 			}
