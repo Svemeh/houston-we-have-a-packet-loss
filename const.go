@@ -59,7 +59,7 @@ const (
 
 	// Sky: satellite tracking.
 	CelestrakStarlinkURL    = "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=json"
-	TLERefreshInterval      = 8 * time.Hour
+	TLERefreshInterval      = 2 * time.Hour // Celestrak publishes about every 2 h; manoeuvring satellites drift off older elements
 	TLERefreshRetryInterval = 5 * time.Minute
 	TLEFetchTimeout         = 30 * time.Second
 	TLEStaleAfter           = 3 * 24 * time.Hour

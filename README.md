@@ -46,7 +46,7 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 flowchart LR
     Dish[Starlink dish<br/>gRPC :9200] -->|GetStatus 1 s<br/>GetHistory 60 s| Collector
     Net[Router · Dish · 1.1.1.1 · 8.8.8.8] -->|ICMP 1 s| Pingers
-    Celestrak -->|OMM elements, cached 8 h| Sky[Sky tracker<br/>SGP4]
+    Celestrak -->|OMM elements, refreshed every 2 h| Sky[Sky tracker<br/>SGP4]
 
     Collector --> Hub1[Hub]
     Pingers --> Hub2[Hub]
