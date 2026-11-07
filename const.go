@@ -58,7 +58,8 @@ const (
 	LinkStateOffline    = "OFFLINE"
 
 	// Sky: satellite tracking.
-	CelestrakStarlinkURL    = "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=json"
+	// CelestrakStarlinkURL: SpaceX's own orbit predictions, fresher than the GP set.
+	CelestrakStarlinkURL    = "https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=starlink&FORMAT=json"
 	TLERefreshInterval      = 2 * time.Hour // Celestrak publishes about every 2 h; manoeuvring satellites drift off older elements
 	TLERefreshRetryInterval = 5 * time.Minute
 	TLEFetchTimeout         = 30 * time.Second
