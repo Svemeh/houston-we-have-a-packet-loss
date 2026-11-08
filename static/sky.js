@@ -59,6 +59,13 @@
   let latestSnapshot = null;
   let latestServing = null;
 
+  // The globe panel reads the same data instead of opening its own stream.
+  const shared = (window.houstonSky = window.houstonSky || {});
+  const publish = (kind, detail) => {
+    shared[kind] = detail;
+    window.dispatchEvent(new CustomEvent(`houston:${kind}`, { detail }));
+  };
+
   const readVariable = (name, fallback) => {
     const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return value || fallback;
@@ -290,7 +297,7 @@
     // Set from another tab, or cleared by a restart: ask the server again.
     if (latestSnapshot && latestSnapshot.location_set !== snapshot.location_set) loadLocation();
     latestSnapshot = snapshot;
-    window.dispatchEvent(new CustomEvent("houston:sky", { detail: snapshot }));
+    publish("sky", snapshot);
 
     const aboveHorizon = (snapshot.objects || []).length;
     setText(elements.inCone, snapshot.in_cone_count);
@@ -346,6 +353,7 @@
 
   const applyLocation = (location) => {
     locationSource = location.source || "";
+    publish("location", location);
     if (location.location_set && elements.latitudeInput && elements.longitudeInput) {
       elements.latitudeInput.value = location.latitude_deg;
       elements.longitudeInput.value = location.longitude_deg;
@@ -454,6 +462,7 @@
       const response = await fetch(SERVING_URL, { cache: "no-store" });
       if (!response.ok) return;
       latestServing = await response.json();
+      publish("serving", latestServing);
       render();
     } catch (error) {
       console.warn("serving poll failed", error);

@@ -9,6 +9,9 @@
   <script src="/dashboard.js" defer></script>
   <script src="/sky.js" defer></script>
   <script src="/obstruction.js" defer></script>
+  <script src="/vendor/three.min.js" defer></script>
+  <script src="/vendor/topojson-client.min.js" defer></script>
+  <script src="/globe.js" defer></script>
 </head>
 
 <body>
@@ -114,6 +117,52 @@
         <div class="scope">
           <div class="scope-head"><span class="label">Machine-to-Internet Packet Loss</span><span class="scope-range-label" id="chart-range-machine-to-internet-loss"></span></div>
           <canvas id="chart-machine-to-internet-loss"></canvas>
+        </div>
+        <div class="scope is-globe">
+          <div class="scope-head"><span class="label">Orbit View</span><span class="scope-range-label globe-hint">drag to turn · ctrl + scroll to zoom</span></div>
+          <div class="globe-layout">
+            <div class="globe-stage" id="globe-stage">
+              <canvas id="globe-canvas" aria-label="Earth with the dish, the satellites above it and a beam to the serving satellite"></canvas>
+              <div class="globe-tag" id="globe-tag" hidden></div>
+              <div class="globe-caption" id="globe-caption"></div>
+              <div class="globe-controls">
+                <label>Altitude <span class="tabular-num" id="globe-altitude-value">×4</span>
+                  <input id="globe-altitude" type="range" min="1" max="8" step="1" value="4">
+                </label>
+                <button type="button" class="range-button" id="globe-centre">Centre on dish</button>
+              </div>
+            </div>
+            <section class="globe-readout">
+              <div class="globe-row">
+                <span class="label">Serving Satellite</span>
+                <span class="globe-pill" id="globe-status">—</span>
+              </div>
+              <div>
+                <div class="globe-name tabular-num" id="globe-name">—</div>
+                <div class="globe-sub" id="globe-sub">waiting for Houston</div>
+              </div>
+              <div class="globe-grid">
+                <div class="globe-cell"><span>Elevation</span><span class="tabular-num" id="globe-el">—</span></div>
+                <div class="globe-cell"><span>Azimuth</span><span class="tabular-num" id="globe-az">—</span></div>
+                <div class="globe-cell"><span>Range</span><span class="tabular-num" id="globe-range">—</span></div>
+                <div class="globe-cell"><span>Altitude</span><span class="tabular-num" id="globe-height">—</span></div>
+                <div class="globe-cell"><span>Arc Fit</span><span class="tabular-num" id="globe-fit">—</span></div>
+                <div class="globe-cell"><span>One-Way</span><span class="tabular-num" id="globe-one-way">—</span></div>
+              </div>
+              <div class="globe-slot">
+                <div class="globe-row">
+                  <span class="globe-small" id="globe-slot">SLOT</span>
+                  <span class="globe-small">NEXT HANDOVER IN <span class="globe-next tabular-num" id="globe-next">—</span></span>
+                </div>
+                <div class="globe-bar"><i id="globe-bar"></i></div>
+              </div>
+              <div class="globe-last" id="globe-last" hidden>
+                <span class="globe-small" id="globe-last-label">HANDOVER</span>
+                <span class="globe-last-text" id="globe-last-text">—</span>
+              </div>
+              <div class="globe-foot tabular-num" id="globe-foot">—</div>
+            </section>
+          </div>
         </div>
       </div>
 

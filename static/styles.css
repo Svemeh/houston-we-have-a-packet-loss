@@ -691,6 +691,250 @@ header {
   margin-bottom: 8px;
 }
 
+/* ---- Orbit view ----------------------------------------------------------
+   Globe on the left, serving-satellite readout on the right; stacks when the
+   card is narrow. */
+
+.scope.is-globe {
+  container-type: inline-size;
+}
+
+.globe-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.globe-stage {
+  position: relative;
+  min-height: 440px;
+  overflow: hidden;
+  background: #0b1119;
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+}
+
+.scope .globe-stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.scope .globe-stage canvas:active {
+  cursor: grabbing;
+}
+
+.scope .globe-stage.is-unavailable canvas {
+  display: none;
+}
+
+.globe-tag {
+  position: absolute;
+  pointer-events: none;
+  transform: translate(14px, -50%);
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--amber);
+  text-shadow: 0 0 6px #000;
+}
+
+.globe-caption {
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  right: 12px;
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--label);
+  text-shadow: 0 0 4px #000;
+}
+
+.globe-controls {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--label);
+}
+
+.globe-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.globe-controls .range-button {
+  flex: none;
+}
+
+.globe-controls input[type="range"] {
+  width: 90px;
+  accent-color: var(--amber);
+}
+
+.globe-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 6px 4px;
+  font-family: var(--mono);
+}
+
+.globe-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.globe-pill {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--label);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.globe-pill.is-matched {
+  color: var(--nominal);
+  border-color: color-mix(in srgb, var(--nominal) 45%, transparent);
+}
+
+.globe-pill.is-caution {
+  color: var(--caution);
+  border-color: var(--amber-dim);
+}
+
+.globe-name {
+  font-size: 26px;
+  letter-spacing: 0.02em;
+  color: var(--readout);
+  overflow-wrap: anywhere;
+}
+
+.globe-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--label);
+}
+
+.globe-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--edge);
+}
+
+.globe-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.globe-cell span:first-child {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+.globe-cell span:last-child {
+  font-size: 19px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.globe-slot,
+.globe-last {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--edge);
+}
+
+.globe-small {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--label);
+}
+
+.globe-next {
+  color: var(--amber);
+}
+
+.globe-bar {
+  height: 6px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.globe-bar i {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--amber);
+}
+
+.globe-last[hidden] {
+  display: none;
+}
+
+.globe-last-text {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.globe-foot {
+  margin-top: auto;
+  font-size: 11px;
+  color: var(--label-dim);
+}
+
+@container (max-width: 760px) {
+  .globe-layout {
+    grid-template-columns: 1fr;
+  }
+  .globe-stage {
+    min-height: 0;
+    aspect-ratio: 1 / 0.9;
+  }
+  .globe-hint {
+    display: none;
+  }
+  .globe-controls {
+    left: 10px;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+  }
+  .globe-controls input[type="range"] {
+    width: 64px;
+  }
+}
+
 /* ---- Location panel ----------------------------------------------------
    Shown in the sky card until the server knows where the dish is. */
 
