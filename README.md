@@ -37,7 +37,7 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 - **Dish telemetry** — status and outage history from the dish's gRPC API, including fields newer than the published protobufs (decoded by tag from the unknown-field bytes).
 - **Hourly rollup** — loss, RTT p50/p90/p99/max and jitter per target, plus loss bucketed by second within the 15 s satellite slot. Kept forever at ~600 B/hour.
 - **Satellite sky view** — on the dashboard: every Starlink satellite above the horizon, propagated with SGP4 from SpaceX's own orbit predictions (Celestrak supplemental elements, refreshed every 2 h).
-- **Serving satellite and obstruction map** — names the satellite serving each 15 s slot by matching the arc it traces on the dish's obstruction map, and builds Houston's own obstruction map from those arcs, drawn in the sky view.
+- **Serving satellite and obstruction map** — names the satellite serving each 15 s slot by matching the arc it traces on the dish's obstruction map, and builds Houston's own obstruction map from those arcs, drawn as a 3D dome you can turn, like the Starlink app's.
 - **Fake mode** — a synthetic dish that cycles through degraded, obstructed, no-signal and offline states, so the UI can be developed without hardware.
 - **Single binary, no database** — static files are embedded; data is append-only JSON Lines, pruned by atomic rewrite.
 

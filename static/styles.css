@@ -538,20 +538,35 @@ header {
   background: var(--label-dim);
 }
 
-/* Houston's own obstruction map, shown while satellite tracking runs. */
+/* Houston's own obstruction map as a dome, shown while satellite tracking runs. */
+.body-side .scope[hidden] {
+  display: none;
+}
+
+.body-side:has(> .is-obstruction:not([hidden])) {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.dome-frame {
+  width: 100%;
+  aspect-ratio: 1.3;
+}
+
+.dome-frame #obstruction-dome {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: pan-y;
+}
+
 .map-legend {
-  margin-top: 6px;
+  margin: 6px 0 4px;
   row-gap: 4px;
 }
 
-.legend-swatch.is-map-clear,
-.legend-swatch.is-map-obstructed,
-.legend-swatch.is-map-unmapped {
-  border-radius: 1px;
-}
-
 .legend-swatch.is-map-clear {
-  background: color-mix(in srgb, var(--nominal) 35%, transparent);
+  background: #eef2f6;
 }
 
 .legend-swatch.is-map-obstructed {
@@ -559,8 +574,7 @@ header {
 }
 
 .legend-swatch.is-map-unmapped {
-  background: color-mix(in srgb, var(--amber) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  background: #59626d;
 }
 
 .map-summary {
