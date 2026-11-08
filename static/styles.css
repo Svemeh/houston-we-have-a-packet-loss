@@ -642,6 +642,10 @@ header {
   color: var(--label);
 }
 
+.serving-line[hidden] {
+  display: none;
+}
+
 .serving-label {
   text-transform: uppercase;
   color: var(--label-dim);
