@@ -538,6 +538,39 @@ header {
   background: var(--label-dim);
 }
 
+/* Houston's own obstruction map, shown while satellite tracking runs. */
+.map-legend {
+  margin-top: 6px;
+  row-gap: 4px;
+}
+
+.legend-swatch.is-map-clear,
+.legend-swatch.is-map-obstructed,
+.legend-swatch.is-map-unmapped {
+  border-radius: 1px;
+}
+
+.legend-swatch.is-map-clear {
+  background: color-mix(in srgb, var(--nominal) 35%, transparent);
+}
+
+.legend-swatch.is-map-obstructed {
+  background: var(--alarm);
+}
+
+.legend-swatch.is-map-unmapped {
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+}
+
+.map-summary {
+  flex-basis: 100%;
+  text-align: center;
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: none;
+}
+
 /* Where the dish is aimed, under the scope it describes. Until the dish
    reports a boresight the cone is an assumption, and is-assumed says so. */
 .sky-note {

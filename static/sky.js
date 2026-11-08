@@ -4,6 +4,8 @@
   const SKY_EVENTS_URL = "/skyevents";
   const LOCATION_URL = "/location";
   const SERVING_URL = "/serving";
+  const OBSTRUCTION_MAP_URL = "/obstructionmap";
+  const OBSTRUCTION_MAP_POLL_MS = 60000;
   const SERVING_POLL_MS = 5000;
   const SERVING_STALE_MS = 45000; // three slots without a result
   const SLOT_SECONDS = 15;
@@ -50,6 +52,8 @@
     servingLine: document.getElementById("serving-line"),
     servingName: document.getElementById("serving-name"),
     servingDetail: document.getElementById("serving-detail"),
+    mapLegend: document.getElementById("map-legend"),
+    mapSummary: document.getElementById("map-summary"),
   };
 
   const setText = (element, text) => {
@@ -58,6 +62,7 @@
 
   let latestSnapshot = null;
   let latestServing = null;
+  let latestObstructionMap = null;
 
   const readVariable = (name, fallback) => {
     const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -68,6 +73,8 @@
     edge: readVariable("--edge", "#232e3b"),
     grid: readVariable("--grid", "#1b2531"),
     amber: readVariable("--amber", "#f5b740"),
+    nominal: readVariable("--nominal", "#5fd08a"),
+    alarm: readVariable("--alarm", "#e5533d"),
     labelDim: readVariable("--label-dim", "#586675"),
     label: readVariable("--label", "#8a97a6"),
     aboveHorizon: "#4a6076",
@@ -196,6 +203,35 @@
     drawing.restore();
   };
 
+  // Houston's own obstruction map. The dish's grid is equidistant from zenith like
+  // this plot, so each cell is a square; cells never traced are left undrawn.
+  const drawObstructionMap = (centreX, centreY, radius) => {
+    const map = latestObstructionMap;
+    if (!map || !map.enabled || !map.cells || map.cells.length !== map.rows * map.cols) return;
+    const centre = (map.rows - 1) / 2;
+    const scale = (map.max_theta_deg / 90) * radius;
+    const cellSize = scale / centre;
+    const layers = [
+      { state: "1", colour: theme.nominal, alpha: 0.25 },
+      { state: "2", colour: theme.alarm, alpha: 0.95 },
+    ];
+    drawing.save();
+    for (const layer of layers) {
+      drawing.beginPath();
+      for (let index = 0; index < map.cells.length; index++) {
+        if (map.cells[index] !== layer.state) continue;
+        const north = (centre - Math.floor(index / map.cols)) / centre;
+        const east = ((index % map.cols) - centre) / centre;
+        if (Math.hypot(north, east) > 1) continue;
+        drawing.rect(centreX + east * scale - cellSize / 2, centreY - north * scale - cellSize / 2, cellSize, cellSize);
+      }
+      drawing.globalAlpha = layer.alpha;
+      drawing.fillStyle = layer.colour;
+      drawing.fill();
+    }
+    drawing.restore();
+  };
+
   const drawSatellites = (objects, centreX, centreY, radius) => {
     for (const object of objects) {
       if (object.in_cone) continue;
@@ -260,6 +296,7 @@
     if (latestSnapshot && latestSnapshot.service_floor_deg > 0) {
       drawFieldOfView(latestSnapshot, centreX, centreY, radius);
     }
+    drawObstructionMap(centreX, centreY, radius);
     drawGraticule(centreX, centreY, radius);
     if (latestSnapshot) {
       drawSatellites(latestSnapshot.objects || [], centreX, centreY, radius);
@@ -459,6 +496,31 @@
     }
   };
 
+  // ---- Obstruction map ---------------------------------------------------
+
+  const updateMapLegend = () => {
+    const map = latestObstructionMap;
+    if (!elements.mapLegend) return;
+    elements.mapLegend.hidden = !(map && map.enabled);
+    if (elements.mapLegend.hidden) return;
+    const filled = `map ${Math.floor(map.coverage * 100)}% filled`;
+    setText(elements.mapSummary, map.obstruction_fraction == null
+      ? `${filled} · % shown from ${Math.round(map.min_coverage * 100)}%`
+      : `${(map.obstruction_fraction * 100).toFixed(2)}% obstructed · ${filled}`);
+  };
+
+  const loadObstructionMap = async () => {
+    try {
+      const response = await fetch(OBSTRUCTION_MAP_URL, { cache: "no-store" });
+      if (!response.ok) return;
+      latestObstructionMap = await response.json();
+      updateMapLegend();
+      render();
+    } catch (error) {
+      console.warn("obstruction map poll failed", error);
+    }
+  };
+
   // ---- Stream ----------------------------------------------------------
 
   const connect = () => {
@@ -485,5 +547,7 @@
   connect();
   loadServing();
   setInterval(loadServing, SERVING_POLL_MS);
+  loadObstructionMap();
+  setInterval(loadObstructionMap, OBSTRUCTION_MAP_POLL_MS);
   setInterval(updateServingReadout, 1000);
 })();

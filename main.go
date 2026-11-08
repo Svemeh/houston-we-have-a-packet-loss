@@ -32,6 +32,7 @@ func main() {
 	handoverLogPath := flag.String("handover-log", DefaultHandoverLogPath, "handover burst log file (JSONL)")
 	trackSatellite := flag.Bool("track-satellite", DefaultTrackSatellite, "identify the serving satellite every 15 s (clears the dish's obstruction map each slot)")
 	servingLogPath := flag.String("serving-log", DefaultServingLogPath, "serving satellite log file (JSONL)")
+	obstructionMapPath := flag.String("obstruction-map", DefaultObstructionMapPath, "Houston's own obstruction map, built while -track-satellite runs (JSON)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -161,7 +162,20 @@ func main() {
 	ctx, stopSignalWatch := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignalWatch()
 
-	go pollLoop(ctx, collector, hub, logFile, tracker)
+	var mapSource ObstructionMapSource
+	var obstructionMapper *ObstructionMapper
+	if *trackSatellite {
+		if source, ok := collector.(ObstructionMapSource); ok {
+			log.Print("serving satellite: tracking on; the dish's obstruction map is cleared every 15 s, Houston keeps its own")
+			mapSource = source
+			obstructionMapper = LoadObstructionMapper(*obstructionMapPath, tracker.ServiceFloor)
+			go obstructionMapper.Run(ctx)
+		} else {
+			log.Print("serving satellite: not available from this collector, not tracking")
+		}
+	}
+
+	go pollLoop(ctx, collector, hub, logFile, tracker, obstructionMapper)
 	go pruneLoop(ctx, logFile, pingLogFile, hopsLogFile, outageLogFile, handoverLogFile, servingLogFile)
 	go tracker.Run(ctx)
 	if !*noPing {
@@ -182,18 +196,13 @@ func main() {
 		log.Print("dish outages: not available from this collector, not polling")
 	}
 	var servingTracker *ServingTracker
-	if *trackSatellite {
-		if mapSource, ok := collector.(ObstructionMapSource); ok {
-			log.Print("serving satellite: tracking on; the dish's obstruction map is cleared every 15 s")
-			priorServing, err := LoadSamplesSince[ServingSlot](*servingLogPath, time.Now().Add(-LogRetention))
-			if err != nil {
-				log.Printf("warning: could not load prior serving slots: %v", err)
-			}
-			servingTracker = NewServingTracker(mapSource, tracker, servingLogFile, *requestTimeout, priorServing)
-			go servingTracker.Run(ctx)
-		} else {
-			log.Print("serving satellite: not available from this collector, not tracking")
+	if mapSource != nil {
+		priorServing, err := LoadSamplesSince[ServingSlot](*servingLogPath, time.Now().Add(-LogRetention))
+		if err != nil {
+			log.Printf("warning: could not load prior serving slots: %v", err)
 		}
+		servingTracker = NewServingTracker(mapSource, tracker, servingLogFile, *requestTimeout, priorServing, obstructionMapper)
+		go servingTracker.Run(ctx)
 	}
 
 	if err := serveDashboard(ctx, *webListenAddress, dashboardSources{
@@ -202,6 +211,7 @@ func main() {
 		hopsHub:          hopsHub,
 		tracker:          tracker,
 		serving:          servingTracker,
+		obstruction:      obstructionMapper,
 		telemetryLogPath: *logPath,
 		pingLogPath:      *pingLogPath,
 		hopsLogPath:      *hopsLogPath,
@@ -212,9 +222,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "✗ server error: %v\n", err)
 		os.Exit(1)
 	}
+	if obstructionMapper != nil {
+		if err := obstructionMapper.Save(time.Now()); err != nil {
+			log.Printf("obstruction map save failed: %v", err)
+		}
+	}
 }
 
-func pollLoop(ctx context.Context, collector TelemetryCollector, hub *Hub[TelemetrySample], logFile *LogFile[TelemetrySample], tracker *SkyTracker) {
+// pollLoop polls the dish every second; obstruction is nil unless Houston's own obstruction map replaces the dish's readings.
+func pollLoop(ctx context.Context, collector TelemetryCollector, hub *Hub[TelemetrySample], logFile *LogFile[TelemetrySample], tracker *SkyTracker, obstruction *ObstructionMapper) {
 	ticker := time.NewTicker(DefaultPollInterval)
 	defer ticker.Stop()
 
@@ -238,6 +254,9 @@ func pollLoop(ctx context.Context, collector TelemetryCollector, hub *Hub[Teleme
 					sample.BoresightAzimuthDeg, sample.BoresightElevationDeg)
 				loggedBoresight = true
 			}
+		}
+		if obstruction != nil {
+			obstruction.Apply(&sample)
 		}
 		hub.PublishSample(sample)
 		if err := logFile.Append(sample); err != nil {
@@ -299,7 +318,9 @@ func runConnectivityCheck(collector TelemetryCollector, timeout time.Duration) e
 	fmt.Printf("  link:      %s\n", sample.LinkState)
 	fmt.Printf("  latency:   %.1f ms\n", sample.LatencyMs)
 	fmt.Printf("  drop rate: %.1f%%\n", sample.DropRateFraction*100)
-	fmt.Printf("  obstruction: %.2f%% of sky\n", sample.ObstructionFraction*100)
+	if sample.ObstructionFraction != nil {
+		fmt.Printf("  obstruction: %.2f%% of sky\n", *sample.ObstructionFraction*100)
+	}
 	fmt.Printf("  hardware:  %s\n", sample.HardwareVersion)
 	fmt.Printf("  software:  %s\n", sample.SoftwareVersion)
 	if sample.BoresightValid {

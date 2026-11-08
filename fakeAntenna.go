@@ -96,7 +96,7 @@ func (fake *FakeCollector) Collect(ctx context.Context) (TelemetrySample, error)
 		UploadMbps:          math.Max(0, uploadMbps),
 		DropRateFraction:    dropRateFraction,
 		Obstructed:          isObstructed,
-		ObstructionFraction: obstructionFraction,
+		ObstructionFraction: &obstructionFraction,
 		UptimeSeconds:       uint64(now.Sub(fake.startedAt).Seconds()),
 		HardwareVersion:     "rev3_proto2 (fake)",
 		SoftwareVersion:     "2025.02.14.mr30330 (fake)",

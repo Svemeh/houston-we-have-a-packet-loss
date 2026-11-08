@@ -292,16 +292,19 @@ type ServingTracker struct {
 	sleep   func(ctx context.Context, wait time.Duration) bool
 	timeout time.Duration
 
+	obstruction *ObstructionMapper // nil: no map kept
+
 	mutex  sync.RWMutex
 	latest *ServingSlot
 	floor  servingFloor
 }
 
-// NewServingTracker starts from prior slots so the measured service floor survives a restart.
-func NewServingTracker(source ObstructionMapSource, sky *SkyTracker, logFile *LogFile[ServingSlot], timeout time.Duration, prior []ServingSlot) *ServingTracker {
+// NewServingTracker starts from prior slots so the measured service floor survives a restart; each slot also feeds obstruction.
+func NewServingTracker(source ObstructionMapSource, sky *SkyTracker, logFile *LogFile[ServingSlot], timeout time.Duration, prior []ServingSlot, obstruction *ObstructionMapper) *ServingTracker {
 	tracker := &ServingTracker{
-		source: source,
-		sky:    sky,
+		source:      source,
+		sky:         sky,
+		obstruction: obstruction,
 		emit: func(slot ServingSlot) {
 			if err := logFile.Append(slot); err != nil {
 				log.Printf("serving log write failed: %v", err)
@@ -368,6 +371,7 @@ func (tracker *ServingTracker) observeSlot(ctx context.Context, start time.Time)
 	firstSeen := make(map[int]time.Time)
 	var latest ObstructionMap
 	var lastErr error
+	var changed []int
 	for read := 1; read <= ServingReadsPerSlot; read++ {
 		readAt := start.Add(ServingClearDelay + time.Duration(read)*ServingReadInterval)
 		if !tracker.sleep(ctx, readAt.Sub(tracker.now())) {
@@ -380,10 +384,17 @@ func (tracker *ServingTracker) observeSlot(ctx context.Context, start time.Time)
 			lastErr = err
 			continue
 		}
+		changed = changed[:0]
 		for cell, snr := range obstructionMap.SNR {
 			if _, seen := firstSeen[cell]; snr >= 0 && !seen {
 				firstSeen[cell] = readAt.Add(-ServingReadInterval / 2)
 			}
+			if snr >= 0 && (len(latest.SNR) != len(obstructionMap.SNR) || latest.SNR[cell] != snr) {
+				changed = append(changed, cell)
+			}
+		}
+		if tracker.obstruction != nil {
+			tracker.obstruction.ObserveRead(obstructionMap, changed, tracker.now())
 		}
 		latest = obstructionMap
 	}
@@ -397,6 +408,9 @@ func (tracker *ServingTracker) observeSlot(ctx context.Context, start time.Time)
 	if latest.Frame != obstructionFrameEarth {
 		slot.Status = ServingUnsupportedFrame
 		return slot, true
+	}
+	if tracker.obstruction != nil {
+		tracker.obstruction.MergeSlot(latest, start)
 	}
 
 	pixels := make([]arcPixel, 0, len(firstSeen))

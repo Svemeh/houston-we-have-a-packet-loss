@@ -54,6 +54,7 @@ func (collector *StarlinkCollector) Collect(ctx context.Context) (TelemetrySampl
 	obstructionStats := dishStatus.GetObstructionStats()
 	isObstructed := obstructionStats.GetCurrentlyObstructed()
 	dropRateFraction := float64(dishStatus.GetPopPingDropRate())
+	obstructionFraction := float64(obstructionStats.GetFractionObstructed())
 	boresightAzimuth, boresightElevation, boresightOK := readBoresight(dishStatus)
 
 	return TelemetrySample{
@@ -64,7 +65,7 @@ func (collector *StarlinkCollector) Collect(ctx context.Context) (TelemetrySampl
 		UploadMbps:            float64(dishStatus.GetUplinkThroughputBps()) / 1e6,   // bps -> Mbps
 		DropRateFraction:      dropRateFraction,
 		Obstructed:            isObstructed,
-		ObstructionFraction:   float64(obstructionStats.GetFractionObstructed()),
+		ObstructionFraction:   &obstructionFraction,
 		BoresightAzimuthDeg:   boresightAzimuth,
 		BoresightElevationDeg: boresightElevation,
 		BoresightValid:        boresightOK,
