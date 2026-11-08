@@ -36,7 +36,7 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 - **Per-hop pinger** — router (found from the default gateway), dish, Cloudflare and Google pinged in parallel each second, so a loss can be pinned to a segment of the path.
 - **Dish telemetry** — status and outage history from the dish's gRPC API, including fields newer than the published protobufs (decoded by tag from the unknown-field bytes).
 - **Hourly rollup** — loss, RTT p50/p90/p99/max and jitter per target, plus loss bucketed by second within the 15 s satellite slot. Kept forever at ~600 B/hour.
-- **Satellite sky view** — on the dashboard: every Starlink satellite above the horizon, propagated from Celestrak orbital elements (OMM) with SGP4.
+- **Satellite sky view** — on the dashboard: every Starlink satellite above the horizon, propagated with SGP4 from SpaceX's own orbit predictions (Celestrak supplemental elements, refreshed every 2 h).
 - **Fake mode** — a synthetic dish that cycles through degraded, obstructed, no-signal and offline states, so the UI can be developed without hardware.
 - **Single binary, no database** — static files are embedded; data is append-only JSON Lines, pruned by atomic rewrite.
 
@@ -175,7 +175,7 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `serving.go` | Serving satellite: obstruction-map reset, arc matching, `serving.jsonl` |
 | `logFile.go` | JSONL persistence, pruning, range reads, downsampling |
 | `hub.go` · `server.go` | SSE fan-out and HTTP routes |
-| `sky.go` · `settings.go` | TLE fetch/cache and SGP4 propagation · location saved from the dashboard |
+| `sky.go` · `settings.go` | Orbit element fetch/cache and SGP4 propagation · location saved from the dashboard |
 | `static/` | Dashboard (vanilla JS, canvas charts) |
 | `install.sh` · `install.ps1` | Installers (macOS/Linux · Windows) |
 
