@@ -140,14 +140,14 @@ func TestMatchArcPicksTheTracingSatellite(t *testing.T) {
 	}
 }
 
-func TestMatchArcFindsOldElementLag(t *testing.T) {
+func TestMatchArcSearchesTheWholeWindow(t *testing.T) {
 	candidates := testCandidates(t)
 	moment := time.Date(2026, 10, 24, 8, 0, 0, 0, time.UTC)
 	observer := observerUnder(candidates[0].propagator, moment)
-	pixels := syntheticArc(candidates[0].propagator, observer, moment, -8*time.Second)
+	pixels := syntheticArc(candidates[0].propagator, observer, moment, ServingMinTimeOffsetS*time.Second)
 
 	best, _ := matchArc(pixels, candidates, observer)
-	if best == nil || best.Satellite != candidates[0].name || best.TimeOffsetS != -8 || best.FitDeg > 0.3 {
+	if best == nil || best.Satellite != candidates[0].name || best.TimeOffsetS != ServingMinTimeOffsetS || best.FitDeg > 0.3 {
 		t.Fatalf("best = %+v", best)
 	}
 }
