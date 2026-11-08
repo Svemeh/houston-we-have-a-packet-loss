@@ -3,11 +3,24 @@
 
   const SKY_EVENTS_URL = "/skyevents";
   const LOCATION_URL = "/location";
+  const SERVING_URL = "/serving";
+  const SERVING_POLL_MS = 5000;
+  const SERVING_STALE_MS = 45000; // three slots without a result
+  const SLOT_SECONDS = 15;
+  const SLOT_BOUNDARY_OFFSET = 12; // handovers at :12/:27/:42/:57 UTC
+  const SERVING_STATUS_TEXT = {
+    ambiguous: "no clear match this slot",
+    few_pixels: "arc too short this slot",
+    no_location: "set your location",
+    no_elements: "waiting on satellite elements",
+    unsupported_frame: "not supported on this dish",
+    error: "dish did not answer",
+  };
   const TO_RADIANS = Math.PI / 180;
 
-  // Only 60° is decorative. Zenith, the service floor and the horizon all mean
-  // something on their own, so a 30° ring would just crowd the floor.
-  const ELEVATION_RINGS = [15, 30, 45, 60];
+  // Zenith, the 25° service floor and the horizon mean something on their own;
+  // 15° and 30° rings would crowd the floor label.
+  const ELEVATION_RINGS = [45, 60];
   const CARDINAL_POINTS = [
     { label: "N", azimuth: 0 },
     { label: "E", azimuth: 90 },
@@ -34,6 +47,9 @@
     longitudeInput: document.getElementById("longitude-input"),
     locationStatus: document.getElementById("location-status"),
     changeLocation: document.getElementById("change-location"),
+    servingLine: document.getElementById("serving-line"),
+    servingName: document.getElementById("serving-name"),
+    servingDetail: document.getElementById("serving-detail"),
   };
 
   const setText = (element, text) => {
@@ -41,6 +57,7 @@
   };
 
   let latestSnapshot = null;
+  let latestServing = null;
 
   const readVariable = (name, fallback) => {
     const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -138,7 +155,7 @@
       drawing.textAlign = "center";
       drawing.textBaseline = "bottom";
       drawing.fillText(
-        `${latestSnapshot.service_floor_deg}° floor`,
+        `${latestSnapshot.service_floor_deg}° floor${latestSnapshot.service_floor_measured ? " (measured)" : ""}`,
         centreX,
         centreY - radiusForElevation(latestSnapshot.service_floor_deg, radius) - 4
       );
@@ -154,80 +171,28 @@
     }
   };
 
-  // Returns points along the cone's rim as az/el, built as 3D unit vectors
-  // around the axis. Works for any aim, zenith included.
-  const coneRimPoints = (axisAzimuthDeg, axisElevationDeg, halfAngleDeg, samples = 180) => {
-    const azimuth = axisAzimuthDeg * TO_RADIANS;
-    const elevation = axisElevationDeg * TO_RADIANS;
-    const halfAngle = halfAngleDeg * TO_RADIANS;
-
-    const axis = [Math.cos(elevation) * Math.sin(azimuth), Math.cos(elevation) * Math.cos(azimuth), Math.sin(elevation)];
-    const across = [Math.cos(azimuth), -Math.sin(azimuth), 0];
-    const up = [
-      axis[1] * across[2] - axis[2] * across[1],
-      axis[2] * across[0] - axis[0] * across[2],
-      axis[0] * across[1] - axis[1] * across[0],
-    ];
-
-    const points = [];
-    for (let step = 0; step <= samples; step++) {
-      const bearing = (step / samples) * 2 * Math.PI;
-      const rim = [0, 1, 2].map((i) =>
-        Math.cos(halfAngle) * axis[i] +
-        Math.sin(halfAngle) * (Math.cos(bearing) * up[i] + Math.sin(bearing) * across[i])
-      );
-      points.push({
-        az: ((Math.atan2(rim[0], rim[1]) / TO_RADIANS) + 360) % 360,
-        el: Math.asin(Math.max(-1, Math.min(1, rim[2]))) / TO_RADIANS,
-      });
-    }
-    return points;
-  };
-
-  const drawCone = (snapshot, centreX, centreY, radius) => {
-    const rim = coneRimPoints(
-      snapshot.cone_azimuth_deg,
-      snapshot.cone_elevation_deg,
-      snapshot.cone_half_angle_deg
-    );
-
+  // The sky the dish actually serves from: everything above the service floor,
+  // measured from which satellites it used. The cross marks where the panel faces.
+  const drawFieldOfView = (snapshot, centreX, centreY, radius) => {
     drawing.save();
-    // Clip to the service floor rather than the horizon. Below it the dish
-    // won't use a satellite even when the cone covers it, so shading that
-    // band would claim more sky than is actually in play.
-    const floorDeg = snapshot.service_floor_deg > 0 ? snapshot.service_floor_deg : 0;
     drawing.beginPath();
-    drawing.arc(centreX, centreY, radiusForElevation(floorDeg, radius), 0, Math.PI * 2);
-    drawing.clip();
-
-    drawing.beginPath();
-    rim.forEach((point, index) => {
-      const projected = project(point.az, point.el, centreX, centreY, radius);
-      if (index === 0) drawing.moveTo(projected.x, projected.y);
-      else drawing.lineTo(projected.x, projected.y);
-    });
-    drawing.closePath();
-
+    drawing.arc(centreX, centreY, radiusForElevation(snapshot.service_floor_deg, radius), 0, Math.PI * 2);
     drawing.fillStyle = "rgba(245, 183, 64, 0.05)";
     drawing.fill();
-
-    // Dashed, because the aim is an assumption rather than a measurement.
-    drawing.setLineDash([4, 4]);
     drawing.strokeStyle = "rgba(245, 183, 64, 0.45)";
     drawing.lineWidth = 1;
     drawing.stroke();
 
-    // Where we think the dish is actually pointed.
-    const axis = project(snapshot.cone_azimuth_deg, snapshot.cone_elevation_deg, centreX, centreY, radius);
-    drawing.setLineDash([]);
-    drawing.strokeStyle = "rgba(245, 183, 64, 0.55)";
-    drawing.beginPath();
-    drawing.moveTo(axis.x - 5, axis.y);
-    drawing.lineTo(axis.x + 5, axis.y);
-    drawing.moveTo(axis.x, axis.y - 5);
-    drawing.lineTo(axis.x, axis.y + 5);
-    drawing.stroke();
-
+    if (!snapshot.cone_is_assumed) {
+      const aim = project(snapshot.cone_azimuth_deg, snapshot.cone_elevation_deg, centreX, centreY, radius);
+      drawing.strokeStyle = "rgba(245, 183, 64, 0.55)";
+      drawing.beginPath();
+      drawing.moveTo(aim.x - 5, aim.y);
+      drawing.lineTo(aim.x + 5, aim.y);
+      drawing.moveTo(aim.x, aim.y - 5);
+      drawing.lineTo(aim.x, aim.y + 5);
+      drawing.stroke();
+    }
     drawing.restore();
   };
 
@@ -255,6 +220,33 @@
     drawing.restore();
   };
 
+  const servingSlot = () => {
+    const slot = latestServing && latestServing.enabled ? latestServing.slot : null;
+    if (!slot || Date.now() - Date.parse(slot.slot_start) > SERVING_STALE_MS) return null;
+    return slot;
+  };
+
+  const drawServing = (objects, centreX, centreY, radius) => {
+    const slot = servingSlot();
+    if (!slot || slot.status !== "matched") return;
+    const object = objects.find((candidate) => candidate.name === slot.best.satellite);
+    if (!object) return;
+    const point = project(object.az, object.el, centreX, centreY, radius);
+    drawing.save();
+    drawing.strokeStyle = theme.amber;
+    drawing.globalAlpha = 0.8;
+    drawing.lineWidth = 1.5;
+    drawing.beginPath();
+    drawing.moveTo(centreX, centreY);
+    drawing.lineTo(point.x, point.y);
+    drawing.stroke();
+    drawing.globalAlpha = 1;
+    drawing.beginPath();
+    drawing.arc(point.x, point.y, 7, 0, Math.PI * 2);
+    drawing.stroke();
+    drawing.restore();
+  };
+
   const render = () => {
     const size = canvas.clientWidth;
     if (!size) return;
@@ -265,12 +257,13 @@
     const centreY = size / 2;
     const radius = size / 2 - 22; // room for the cardinal labels
 
-    if (latestSnapshot && latestSnapshot.cone_half_angle_deg > 0) {
-      drawCone(latestSnapshot, centreX, centreY, radius);
+    if (latestSnapshot && latestSnapshot.service_floor_deg > 0) {
+      drawFieldOfView(latestSnapshot, centreX, centreY, radius);
     }
     drawGraticule(centreX, centreY, radius);
     if (latestSnapshot) {
       drawSatellites(latestSnapshot.objects || [], centreX, centreY, radius);
+      drawServing(latestSnapshot.objects || [], centreX, centreY, radius);
     }
   };
 
@@ -283,11 +276,15 @@
   };
 
   const describeCone = (snapshot) => {
+    const usable = snapshot.service_floor_measured
+      ? `dish serves from above ${snapshot.service_floor_deg}° (measured)`
+      : `dish uses the sky above ${snapshot.service_floor_deg}°`;
+    if (snapshot.cone_is_assumed) return `${usable} · panel aim not reported yet`;
     const tiltDeg = Math.round(90 - snapshot.cone_elevation_deg);
-    if (snapshot.cone_is_assumed) return `${snapshot.cone_half_angle_deg}° cone, zenith (no boresight yet)`;
     const compass = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(snapshot.cone_azimuth_deg / 45) % 8];
-    return `${snapshot.cone_half_angle_deg}° cone, ${tiltDeg}° toward ${compass}`;
+    return `${usable} · panel tilted ${tiltDeg}° toward ${compass}`;
   };
+
 
   const applySnapshot = (snapshot) => {
     // Set from another tab, or cleared by a restart: ask the server again.
@@ -311,7 +308,7 @@
       setText(elements.subtext, "waiting on celestrak");
     } else if (snapshot.in_cone_count === 0) {
       setStripState("state-caution");
-      setText(elements.headline, "NOTHING IN THE CONE");
+      setText(elements.headline, `NOTHING ABOVE ${snapshot.service_floor_deg}°`);
       setText(elements.subtext, `${aboveHorizon} above horizon`);
     } else {
       setStripState("state-nominal");
@@ -424,6 +421,44 @@
     }
   };
 
+  // ---- Serving satellite ------------------------------------------------
+
+  const secondsToHandover = () => {
+    const into = ((Date.now() / 1000 - SLOT_BOUNDARY_OFFSET) % SLOT_SECONDS + SLOT_SECONDS) % SLOT_SECONDS;
+    return Math.ceil(SLOT_SECONDS - into);
+  };
+
+  const updateServingReadout = () => {
+    if (!elements.servingLine) return;
+    const enabled = Boolean(latestServing && latestServing.enabled);
+    elements.servingLine.hidden = !enabled;
+    if (!enabled) return;
+
+    const slot = servingSlot();
+    const handover = `handover in ${secondsToHandover()} s`;
+    if (slot && slot.status === "matched") {
+      const live = ((latestSnapshot && latestSnapshot.objects) || []).find((object) => object.name === slot.best.satellite);
+      const position = live || slot.best;
+      setText(elements.servingName, slot.best.satellite);
+      setText(elements.servingDetail, `el ${Math.round(position.el)}° · az ${Math.round(position.az)}° · ${handover}`);
+    } else {
+      setText(elements.servingName, "—");
+      const reason = slot ? SERVING_STATUS_TEXT[slot.status] || slot.status : "waiting for the first slot";
+      setText(elements.servingDetail, `${reason} · ${handover}`);
+    }
+  };
+
+  const loadServing = async () => {
+    try {
+      const response = await fetch(SERVING_URL, { cache: "no-store" });
+      if (!response.ok) return;
+      latestServing = await response.json();
+      render();
+    } catch (error) {
+      console.warn("serving poll failed", error);
+    }
+  };
+
   // ---- Stream ----------------------------------------------------------
 
   const connect = () => {
@@ -448,4 +483,7 @@
   setUpLocationPanel();
   loadLocation();
   connect();
+  loadServing();
+  setInterval(loadServing, SERVING_POLL_MS);
+  setInterval(updateServingReadout, 1000);
 })();

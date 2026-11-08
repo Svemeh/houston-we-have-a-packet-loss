@@ -159,10 +159,11 @@ type SkySnapshot struct {
 	CatalogCount     int         `json:"catalog_count"`      // elements in the last fetch
 	ElementsAgeS     int64       `json:"elements_age_s"`     // -1 when we have none
 	ElementsAreStale bool        `json:"elements_are_stale"` // older than TLEStaleAfter
-	ConeHalfAngleDeg float64     `json:"cone_half_angle_deg"`
 	ConeAzimuthDeg   float64     `json:"cone_azimuth_deg"`
 	ConeElevationDeg float64     `json:"cone_elevation_deg"`
 	ServiceFloorDeg  float64     `json:"service_floor_deg"`
+	// ServiceFloorMeasured is true once the floor comes from the satellites the dish actually used.
+	ServiceFloorMeasured bool `json:"service_floor_measured"`
 	// ConeIsAssumed is true while we're pointing the cone at zenith because the
 	// dish hasn't told us where it's actually aimed.
 	ConeIsAssumed bool `json:"cone_is_assumed"`
@@ -193,6 +194,8 @@ type SkyTracker struct {
 	coneAzimuthDeg   float64
 	coneElevationDeg float64
 	haveBoresight    bool
+
+	measuredFloorDeg float64 // 0 until measured
 }
 
 func NewSkyTracker(observer Observer, locationSource string) *SkyTracker {
@@ -215,6 +218,13 @@ func (tracker *SkyTracker) SetBoresight(azimuthDeg, elevationDeg float64) {
 	tracker.coneAzimuthDeg = azimuthDeg
 	tracker.coneElevationDeg = elevationDeg
 	tracker.haveBoresight = true
+}
+
+// SetServiceFloor replaces ServiceFloorElevationDeg with the floor measured from serving slots.
+func (tracker *SkyTracker) SetServiceFloor(floorDeg float64) {
+	tracker.mutex.Lock()
+	defer tracker.mutex.Unlock()
+	tracker.measuredFloorDeg = floorDeg
 }
 
 // Location returns the current position and where it came from; source is ""
@@ -577,6 +587,10 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 	coneAzimuthDeg := tracker.coneAzimuthDeg
 	coneElevationDeg := tracker.coneElevationDeg
 	haveBoresight := tracker.haveBoresight
+	floorDeg, floorMeasured := ServiceFloorElevationDeg, tracker.measuredFloorDeg > 0
+	if floorMeasured {
+		floorDeg = tracker.measuredFloorDeg
+	}
 	observer := tracker.observer
 	locationSet := tracker.locationSource != ""
 	tracker.mutex.RUnlock()
@@ -588,11 +602,12 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 		TrackedCount:     len(elements),
 		CatalogCount:     catalogCount,
 		ElementsAgeS:     -1,
-		ConeHalfAngleDeg: DefaultConeHalfAngleDeg,
 		ConeAzimuthDeg:   coneAzimuthDeg,
 		ConeElevationDeg: coneElevationDeg,
-		ServiceFloorDeg:  ServiceFloorElevationDeg,
+		ServiceFloorDeg:  roundTo(floorDeg, 1),
 		ConeIsAssumed:    !haveBoresight,
+
+		ServiceFloorMeasured: floorMeasured,
 	}
 	if !fetchedAt.IsZero() {
 		elementAge := now.Sub(fetchedAt)
@@ -609,27 +624,17 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 	hour, minute, second := utc.Clock()
 	julianDay := satellite.JDay(year, int(month), day, hour, minute, second)
 
-	observerCoords := satellite.LatLong{
-		Latitude:  observer.LatitudeDeg * satellite.DEG2RAD,
-		Longitude: observer.LongitudeDeg * satellite.DEG2RAD,
-	}
-
 	for _, tracked := range elements {
 		position, _ := satellite.Propagate(tracked.propagator, year, int(month), day, hour, minute, second)
 		if math.IsNaN(position.X) || math.IsNaN(position.Y) || math.IsNaN(position.Z) {
 			continue // decayed or otherwise unpropagatable element
 		}
-		lookAngles := satellite.ECIToLookAngles(position, observerCoords, 0, julianDay)
-
-		elevationDeg := lookAngles.El * satellite.RAD2DEG
+		azimuthDeg, elevationDeg, rangeKm := lookFrom(position, observer, julianDay)
 		if elevationDeg < 0 {
 			continue // below the horizon, which is most of them
 		}
-		azimuthDeg := math.Mod(lookAngles.Az*satellite.RAD2DEG+360, 360)
 
-		// Inside the dish's field of view, and high enough for it to bother.
-		inCone := elevationDeg >= ServiceFloorElevationDeg &&
-			angularSeparation(azimuthDeg, elevationDeg, coneAzimuthDeg, coneElevationDeg) <= DefaultConeHalfAngleDeg
+		inCone := elevationDeg >= floorDeg
 		if inCone {
 			snapshot.InConeCount++
 		}
@@ -637,7 +642,7 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 			Name:         tracked.name,
 			AzimuthDeg:   roundTo(azimuthDeg, 1),
 			ElevationDeg: roundTo(elevationDeg, 1),
-			RangeKm:      roundTo(lookAngles.Rg, 0),
+			RangeKm:      roundTo(rangeKm, 0),
 			InCone:       inCone,
 		})
 	}
@@ -646,6 +651,37 @@ func (tracker *SkyTracker) Snapshot(now time.Time) SkySnapshot {
 		return snapshot.Objects[i].ElevationDeg > snapshot.Objects[j].ElevationDeg
 	})
 	return snapshot
+}
+
+const (
+	wgs84EquatorialRadiusKm  = 6378.137
+	wgs84EccentricitySquared = 0.00669437999014
+)
+
+// lookFrom gives azimuth, elevation and range from an observer on the WGS84 ellipsoid (go-satellite's ECIToLookAngles uses a sphere).
+func lookFrom(position satellite.Vector3, observer Observer, julianDay float64) (azimuthDeg, elevationDeg, rangeKm float64) {
+	siderealAngle := satellite.ThetaG_JD(julianDay)
+	x := position.X*math.Cos(siderealAngle) + position.Y*math.Sin(siderealAngle)
+	y := -position.X*math.Sin(siderealAngle) + position.Y*math.Cos(siderealAngle)
+	z := position.Z
+
+	latitude := observer.LatitudeDeg * satellite.DEG2RAD
+	longitude := observer.LongitudeDeg * satellite.DEG2RAD
+	sinLat, cosLat := math.Sin(latitude), math.Cos(latitude)
+	sinLon, cosLon := math.Sin(longitude), math.Cos(longitude)
+	primeVertical := wgs84EquatorialRadiusKm / math.Sqrt(1-wgs84EccentricitySquared*sinLat*sinLat)
+
+	dx := x - primeVertical*cosLat*cosLon
+	dy := y - primeVertical*cosLat*sinLon
+	dz := z - primeVertical*(1-wgs84EccentricitySquared)*sinLat
+	rangeKm = math.Sqrt(dx*dx + dy*dy + dz*dz)
+
+	east := -sinLon*dx + cosLon*dy
+	north := -sinLat*cosLon*dx - sinLat*sinLon*dy + cosLat*dz
+	up := cosLat*cosLon*dx + cosLat*sinLon*dy + sinLat*dz
+	azimuthDeg = math.Mod(math.Atan2(east, north)*satellite.RAD2DEG+360, 360)
+	elevationDeg = math.Asin(up/rangeKm) * satellite.RAD2DEG
+	return azimuthDeg, elevationDeg, rangeKm
 }
 
 // roundTo trims wire noise: 0.1° is a quarter of a pixel on an all-sky plot,

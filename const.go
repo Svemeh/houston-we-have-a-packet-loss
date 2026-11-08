@@ -58,8 +58,9 @@ const (
 	LinkStateOffline    = "OFFLINE"
 
 	// Sky: satellite tracking.
-	CelestrakStarlinkURL    = "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=json"
-	TLERefreshInterval      = 8 * time.Hour
+	// CelestrakStarlinkURL: SpaceX's own orbit predictions, fresher than the GP set.
+	CelestrakStarlinkURL    = "https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=starlink&FORMAT=json"
+	TLERefreshInterval      = 2 * time.Hour // Celestrak publishes about every 2 h; manoeuvring satellites drift off older elements
 	TLERefreshRetryInterval = 5 * time.Minute
 	TLEFetchTimeout         = 30 * time.Second
 	TLEStaleAfter           = 3 * 24 * time.Hour
@@ -68,8 +69,11 @@ const (
 
 	// Geometry at the Starlink operational altitude (~550 km).
 	HorizonAngularRadiusDeg  = 23.0 // arccos(Re/(Re+h)) — how far a sub-satellite point can be and still be visible
-	ServiceFloorElevationDeg = 10.0 // below this the dish won't use it
-	DefaultConeHalfAngleDeg  = 55.0 // Standard/Mini ~110° full FOV; Flat HP ~140°
+	ServiceFloorElevationDeg = 25.0 // lowest elevation the dish serves from (measured 25.5° over ~8,500 slots, Gen 3 Standard)
+
+	// Service floor learned from matched serving slots (-track-satellite); ServiceFloorElevationDeg until there are enough.
+	ServingFloorMinSlots   = 1000  // about 4 h of tracking
+	ServingFloorPercentile = 0.001 // floor is this low percentile, so a few bad matches can't drag it down
 
 	// Ping: ICMP echo from this machine, independent of the dish.
 	// 1.1.1.1 is anycast, so it lands on the nearest Cloudflare edge.
@@ -88,6 +92,7 @@ const (
 
 	RouteSkyEvents = "/skyevents"
 	RouteLocation  = "/location"
+	RouteServing   = "/serving"
 
 	// Settings made from the dashboard, such as the location.
 	DefaultSettingsPath = DataDir + "/settings.json"
@@ -132,6 +137,19 @@ const (
 	HandoverBurstAfter       = 900 * time.Millisecond
 	HandoverBurstMaxLateWake = 50 * time.Millisecond
 	DefaultHandoverLogPath   = DataDir + "/handovers.jsonl"
+
+	// Serving satellite (-track-satellite): clear the obstruction map each slot, match the traced arc to a track.
+	DefaultTrackSatellite           = false
+	ServingClearDelay               = 300 * time.Millisecond // after the slot boundary
+	ServingReadInterval             = 1 * time.Second
+	ServingReadsPerSlot             = 14
+	ServingMinPixels                = 5
+	ServingMaxFitDeg                = 2.5 // median arc-to-track angle, about 2 map pixels
+	ServingMinMarginDeg             = 2.0 // the runner-up must fit at least this much worse
+	ServingMinTimeOffsetS           = -3  // SpaceX elements put satellites within ±1 s; a wider search lets satellites from the same launch train compete
+	ServingMaxTimeOffsetS           = 3
+	ServingCandidateMinElevationDeg = 5.0
+	DefaultServingLogPath           = DataDir + "/serving.jsonl"
 
 	// SchedulerResyncAfter: a wake this far off plan restarts the 1/s schedule.
 	SchedulerResyncAfter = 3 * time.Second
