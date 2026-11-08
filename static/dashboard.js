@@ -123,6 +123,7 @@
   }
 
   // ---- Scope (one strip chart) -------------------------------------------
+  const PLOT_TOP_PADDING_PX = 12; // room above the plot for the top axis label
   const PLOT_BOTTOM_PADDING_PX = 14; // room under the plot for axis labels
   const AXIS_HEADROOM = 1.25; // top of scale sits 25% above the peak
   const HOVER_SNAP_PX = 8; // how close the cursor must be to snap to a point
@@ -223,9 +224,10 @@
       rangeLabelEl.textContent = visiblePointCount
         ? `0–${axisTop} ${config.unit} · ${viewWindow.selectedRange.label}`
         : `${viewWindow.selectedRange.label} span`;
-      const plotHeight = heightPx - PLOT_BOTTOM_PADDING_PX;
+      const plotHeight = heightPx - PLOT_TOP_PADDING_PX - PLOT_BOTTOM_PADDING_PX;
+      const plotBottom = PLOT_TOP_PADDING_PX + plotHeight;
       const traceColor = getCssVar(config.colorVar).trim();
-      const yForValue = value => plotHeight * (1 - Math.min(value, axisTop) / axisTop);
+      const yForValue = value => PLOT_TOP_PADDING_PX + plotHeight * (1 - Math.min(value, axisTop) / axisTop);
 
       // Grid
       canvasCtx.strokeStyle = getCssVar("--grid");
@@ -235,13 +237,13 @@
       const gridStep = config.minGridStep ? pickGridStep(axisTop, config.minGridStep) : axisTop / 4;
       const gridDivisions = Math.max(1, Math.round(axisTop / gridStep));
       for (let division = 0; division <= gridDivisions; division++) {
-        const gridLineY = Math.round((plotHeight * division) / gridDivisions) + 0.5;
+        const gridLineY = Math.round(PLOT_TOP_PADDING_PX + (plotHeight * division) / gridDivisions) + 0.5;
         canvasCtx.beginPath();
         canvasCtx.moveTo(0, gridLineY);
         canvasCtx.lineTo(widthPx, gridLineY);
         canvasCtx.stroke();
         const gridValue = Math.round(axisTop - division * gridStep);
-        canvasCtx.fillText(String(gridValue), 2, gridLineY - 3 < 8 ? gridLineY + 11 : gridLineY - 3);
+        canvasCtx.fillText(String(gridValue), 2, gridLineY - 3);
       }
       if (visiblePointCount < 1) return;
 
@@ -266,11 +268,11 @@
       for (const segment of segments) {
         // Fill under
         canvasCtx.beginPath();
-        canvasCtx.moveTo(xForTime(segment[0].time), plotHeight);
+        canvasCtx.moveTo(xForTime(segment[0].time), plotBottom);
         for (const point of segment) {
           canvasCtx.lineTo(xForTime(point.time), yForValue(point.value));
         }
-        canvasCtx.lineTo(xForTime(segment[segment.length - 1].time), plotHeight);
+        canvasCtx.lineTo(xForTime(segment[segment.length - 1].time), plotBottom);
         canvasCtx.closePath();
         canvasCtx.fillStyle = withAlpha(traceColor, traceFillOpacity);
         canvasCtx.fill();
@@ -308,7 +310,7 @@
           canvasCtx.lineWidth = 1;
           canvasCtx.beginPath();
           canvasCtx.moveTo(Math.round(crosshairX) + 0.5, 0);
-          canvasCtx.lineTo(Math.round(crosshairX) + 0.5, plotHeight);
+          canvasCtx.lineTo(Math.round(crosshairX) + 0.5, plotBottom);
           canvasCtx.stroke();
           canvasCtx.beginPath();
           canvasCtx.arc(crosshairX, crosshairY, HOVER_DOT_RADIUS_PX, 0, Math.PI * 2);
@@ -444,6 +446,7 @@
     rangeLabelId: "chart-range-packet-loss",
     unit: "%",
     minAxisTop: 5,
+    maxAxisTop: 100,
     axisRounding: 5,
     minGridStep: 1,
     colorVar: "--chart-packet-loss",
@@ -692,7 +695,6 @@
         for (const bucket of pingPayload.samples) chartPing(bucket, true);
       }
       scopes.forEach(scope => scope.draw());
-      loadIncidents();
     } finally {
       if (loadToken === latestRangeLoadToken) rangeBarEl.classList.remove("is-loading");
     }
@@ -700,17 +702,44 @@
 
   // ---- Incidents ---------------------------------------------------------
   // Derived server-side from the hop and outage logs, so this just renders
-  // whatever /incidents returns for the selected range.
+  // whatever /incidents returns for a fixed window, independent of the chart range.
+  const INCIDENT_RANGE_ID = "24h"; // the server caps history at 24 h
   const INCIDENT_KINDS = [
     { id: "", label: "All" },
     { id: "loss", label: "Loss" },
     { id: "latency", label: "Latency" },
     { id: "outage", label: "Dish" },
   ];
-  const INCIDENT_SCOPE_TEXT = {
-    local: "local — router or dish lost it too",
-    upstream: "upstream — both destinations lost it",
-    cloudflare: "Cloudflare path only",
+  const INCIDENT_LOSS_TEXT = {
+    local: {
+      summary: "Router or dish stopped answering",
+      detail: "Your router or dish stopped answering too, so the problem is likely on your side of the dish.",
+    },
+    upstream: {
+      summary: "Internet lost, router and dish still answering",
+      detail:
+        "Packets to both Cloudflare and Google were lost while your router and dish still answered, so the loss is likely between the dish and the internet.",
+    },
+    cloudflare: {
+      summary: "Cloudflare lost, Google fine",
+      detail: "Only the Cloudflare (1.1.1.1) path lost packets and Google (8.8.8.8) was fine, so it is likely not your Starlink link.",
+    },
+  };
+  const INCIDENT_OUTAGE_TEXT = {
+    UNKNOWN: "Dish dropped out, reason unknown",
+    BOOTING: "Dish was starting up",
+    STOWED: "Dish was stowed",
+    THERMAL_SHUTDOWN: "Dish overheated and shut down",
+    NO_SCHEDULE: "Dish had no satellite assigned",
+    NO_SATS: "Dish could not find a satellite",
+    OBSTRUCTED: "Something blocked the dish's view",
+    NO_DOWNLINK: "Satellite link lost",
+    NO_PINGS: "Dish reported: no contact with Starlink",
+    ACTUATOR_ACTIVITY: "Dish was moving its motors",
+    CABLE_TEST: "Dish was testing its cable",
+    SLEEPING: "Dish was asleep",
+    SKY_SEARCH: "Dish was searching for satellites",
+    INHIBIT_RF: "Dish radio was switched off",
   };
   const MAX_RENDERED_INCIDENTS = 200;
   // 24-hour, so the column stays one line whatever the locale default is.
@@ -754,12 +783,26 @@
   // A loss burst says where it broke; the others describe themselves.
   function describeIncident(incident) {
     if (incident.kind === "loss") {
-      return INCIDENT_SCOPE_TEXT[incident.scope] || "loss";
+      const text = INCIDENT_LOSS_TEXT[incident.scope];
+      return text ? text.summary : "Packets lost";
     }
     if (incident.kind === "latency") {
       return `Latency spike, peak ${Math.round(incident.peak_rtt_ms)} ms`;
     }
-    return `Dish reported ${incident.cause || "an outage"}`;
+    return INCIDENT_OUTAGE_TEXT[incident.cause] || `Dish dropped out (${incident.cause || "unknown"})`;
+  }
+
+  function incidentDetail(incident) {
+    const duration = formatDuration(incident.duration_s);
+    if (incident.kind === "loss") {
+      const text = INCIDENT_LOSS_TEXT[incident.scope];
+      const lost = incident.lost_count ? ` ${incident.lost_count} pings lost over ${duration}.` : "";
+      return `${text ? text.detail : "Packets were lost."}${lost}`;
+    }
+    if (incident.kind === "latency") {
+      return `Ping stayed high for ${duration} and peaked at ${Math.round(incident.peak_rtt_ms)} ms.`;
+    }
+    return `The dish reported an outage lasting ${duration}${incident.cause ? ` (${incident.cause})` : ""}.`;
   }
 
   function formatDuration(seconds) {
@@ -791,7 +834,7 @@
       text.textContent = describeIncident(incident);
       // The slot is a timing fact, not an attribution: no single incident can
       // be pinned on a handover, only the distribution of many of them.
-      text.title = `${describeIncident(incident)} · second :${incident.slot_second} of the satellite slot`;
+      text.title = `${incidentDetail(incident)} Started at second :${incident.slot_second} of the 15 s satellite cycle.`;
 
       const duration = document.createElement("span");
       duration.className = "incident-duration";
@@ -803,14 +846,13 @@
   }
 
   async function loadIncidents() {
-    const rangeId = viewWindow.selectedRange.id;
     const kindQuery = selectedIncidentKind ? `&kind=${selectedIncidentKind}` : "";
     try {
-      const response = await fetch(`/incidents?range=${encodeURIComponent(rangeId)}${kindQuery}`, { cache: "no-store" });
+      const response = await fetch(`/incidents?range=${INCIDENT_RANGE_ID}${kindQuery}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
       const payload = await response.json();
       const incidents = Array.isArray(payload.incidents) ? payload.incidents : [];
-      incidentCountEl.textContent = `${payload.count} · ${viewWindow.selectedRange.label}`;
+      incidentCountEl.textContent = `${payload.count} · ${INCIDENT_RANGE_ID}`;
       renderIncidents(incidents);
     } catch (error) {
       console.error("could not load incidents", error);
@@ -970,8 +1012,8 @@
     }
   }, REBUCKET_INTERVAL_MS);
 
-  // Incidents are derived from logs that only move once a second; refreshing
-  // on the range change plus a slow timer is enough, and it costs a file read.
+  // Incidents are derived from logs that only move once a second; a slow
+  // timer is enough, and it costs a file read.
   const INCIDENT_REFRESH_MS = 30 * 1000;
   setInterval(loadIncidents, INCIDENT_REFRESH_MS);
   setInterval(loadSummaryTiles, SUMMARY_REFRESH_MS);
@@ -979,6 +1021,7 @@
   window.addEventListener("resize", () => scopes.forEach(scope => scope.resizeCanvas()));
   buildRangeBar();
   buildIncidentFilter();
+  loadIncidents();
   loadSummaryTiles();
   scopes.forEach(scope => scope.resizeCanvas());
   connectToTelemetryStream();
