@@ -14,6 +14,7 @@
   const EXTRAPOLATE_MAX_S = 2; // snapshots come every second; move dots between them
   const IDLE_FRAME_MS = 100; // about 10 fps unless the view is moving
   const TEXTURE_MAX_PX = 4096;
+  const GLOBE_FIT_RADIUS = 1.1; // Earth plus its glow, with a little margin, fits the panel
   const DEG = Math.PI / 180;
   const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
   const STATUS_TEXT = {
@@ -265,7 +266,7 @@
   let renderer = null;
   try {
     if (!window.THREE) throw new Error("three.js did not load");
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   } catch (error) {
     console.warn("globe disabled", error);
     stage.classList.add("is-unavailable");
@@ -290,7 +291,7 @@
   }
 
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setClearColor(0x0b1119, 1);
+  renderer.setClearColor(0x000000, 0);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 200);
   const amber = new THREE.Color(0xf5b740);
@@ -475,20 +476,6 @@
     markDirty();
   }).catch((error) => console.error("could not load the globe map", error));
 
-  // Seeded so the sky doesn't reshuffle on reload.
-  (() => {
-    let seed = 7;
-    const random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
-    const positions = new Float32Array(1200 * 3);
-    for (let i = 0; i < 1200; i++) {
-      const u = random() * 2 - 1, t = random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
-      positions.set([60 * s * Math.cos(t), 60 * u, 60 * s * Math.sin(t)], i * 3);
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    scene.add(new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0x4c5a6a, size: 1, sizeAttenuation: false })));
-  })();
-
   const dotTexture = (fill, stroke) => {
     const dot = document.createElement("canvas");
     dot.width = dot.height = 32;
@@ -604,14 +591,14 @@
 
   // ---- Camera and input -----------------------------------------------------
 
-  let view = { lat: 20, lon: 10, dist: 3 };
+  let view = { lat: 20, lon: 10, zoom: 1 };
   let target = null;
   const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Seen from the equator side, so the beam and satellite heights show against space.
   function centreOnDish(animate) {
     if (!observer) return;
-    const next = { lat: Math.max(-80, Math.min(80, observer.lat - 22 * Math.sign(observer.lat || 1))), lon: observer.lon + 2, dist: 2.6 };
+    const next = { lat: Math.max(-80, Math.min(80, observer.lat - 22 * Math.sign(observer.lat || 1))), lon: observer.lon + 2, zoom: 1 };
     if (animate && !reduceMotion) target = next;
     else {
       view = next;
@@ -620,18 +607,22 @@
     markDirty();
   }
 
-  // With a location the camera aims at the dish, so it stays in frame while you turn.
-  const focus = new THREE.Vector3();
-  const placeCamera = () => {
-    sceneFromLatLon(view.lat, view.lon, view.dist, camera.position);
-    if (observer) sceneFromLatLon(observer.lat, observer.lon, 1.05, focus);
-    else focus.set(0, 0, 0);
-    camera.lookAt(focus);
-  };
 
   // Keep the camera outside the satellite shell, or the satellites end up behind it.
   const minDistance = () => 1.25 + (600 * altitudeScale) / SCENE_EARTH_RADIUS_KM;
-  const clampDistance = (distance) => Math.min(6, Math.max(minDistance(), distance));
+
+  // Distance at which the whole globe fits the narrower side of the panel; zoom 1 is that.
+  const fitDistance = () => {
+    const half = (camera.fov / 2) * DEG;
+    return GLOBE_FIT_RADIUS / Math.sin(Math.min(half, Math.atan(Math.tan(half) * camera.aspect)));
+  };
+  const cameraDistance = () => Math.max(minDistance(), fitDistance() * view.zoom);
+  const clampZoom = (zoom) => Math.min(2, Math.max(minDistance() / fitDistance(), zoom));
+
+  const placeCamera = () => {
+    sceneFromLatLon(view.lat, view.lon, cameraDistance(), camera.position);
+    camera.lookAt(0, 0, 0);
+  };
 
   const pointers = new Map();
   let lastPinch = 0;
@@ -647,10 +638,10 @@
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       const distance = Math.hypot(a.x - b.x, a.y - b.y);
-      if (lastPinch) view.dist = clampDistance((view.dist * lastPinch) / distance);
+      if (lastPinch) view.zoom = clampZoom((view.zoom * lastPinch) / distance);
       lastPinch = distance;
     } else {
-      const k = (0.25 * (view.dist - 1)) / 2;
+      const k = (0.25 * (cameraDistance() - 1)) / 2;
       view.lon -= (event.clientX - previous.x) * k;
       view.lat = Math.max(-80, Math.min(80, view.lat + (event.clientY - previous.y) * k));
     }
@@ -666,7 +657,7 @@
   canvas.addEventListener("wheel", (event) => {
     if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
-    view.dist = clampDistance(view.dist * Math.exp(event.deltaY * 0.003));
+    view.zoom = clampZoom(view.zoom * Math.exp(event.deltaY * 0.003));
     target = null;
     markDirty();
   }, { passive: false });
@@ -675,7 +666,7 @@
     ui.altitude.addEventListener("input", () => {
       altitudeScale = Number(ui.altitude.value);
       setText(ui.altitudeValue, `×${altitudeScale}`);
-      view.dist = clampDistance(view.dist);
+      view.zoom = clampZoom(view.zoom);
       markDirty();
     });
   }
@@ -747,8 +738,8 @@
     if (target) {
       view.lat += (target.lat - view.lat) * 0.08;
       view.lon += (target.lon - view.lon) * 0.08;
-      view.dist += (target.dist - view.dist) * 0.08;
-      if (Math.abs(target.dist - view.dist) < 0.002 && Math.abs(target.lat - view.lat) < 0.05) target = null;
+      view.zoom += (target.zoom - view.zoom) * 0.08;
+      if (Math.abs(target.zoom - view.zoom) < 0.002 && Math.abs(target.lat - view.lat) < 0.05) target = null;
     }
     placeCamera();
     updateClouds(now);

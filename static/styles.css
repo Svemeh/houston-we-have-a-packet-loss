@@ -705,13 +705,18 @@ header {
   gap: 16px;
 }
 
+.globe-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
 .globe-stage {
   position: relative;
-  min-height: 440px;
+  flex: 1;
+  min-height: 420px;
   overflow: hidden;
-  background: #0b1119;
-  border: 1px solid var(--edge);
-  border-radius: 3px;
 }
 
 .scope .globe-stage canvas {
@@ -742,32 +747,25 @@ header {
   text-shadow: 0 0 6px #000;
 }
 
+.globe-under {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 16px;
+}
+
 .globe-caption {
-  position: absolute;
-  left: 12px;
-  top: 10px;
-  right: 12px;
-  pointer-events: none;
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.06em;
-  color: var(--label);
-  text-shadow: 0 0 4px #000;
+  color: var(--label-dim);
 }
 
 .globe-controls {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
   align-items: center;
   gap: 8px 12px;
-  padding: 6px 10px;
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
-  border: 1px solid var(--edge);
-  border-radius: 4px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--label);
@@ -919,16 +917,12 @@ header {
     grid-template-columns: 1fr;
   }
   .globe-stage {
+    flex: none;
     min-height: 0;
     aspect-ratio: 1 / 0.9;
   }
   .globe-hint {
     display: none;
-  }
-  .globe-controls {
-    left: 10px;
-    flex-wrap: nowrap;
-    justify-content: space-between;
   }
   .globe-controls input[type="range"] {
     width: 64px;
