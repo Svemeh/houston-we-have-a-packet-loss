@@ -14,6 +14,7 @@
   const EXTRAPOLATE_MAX_S = 2; // snapshots come every second; move dots between them
   const IDLE_FRAME_MS = 100; // about 10 fps unless the view is moving
   const TEXTURE_MAX_PX = 4096;
+  const ALTITUDE_SCALE = 4; // satellite heights drawn 4× so they lift off the globe
   const GLOBE_FIT_RADIUS = 1.1; // Earth plus its glow, with a little margin, fits the panel
   const DEG = Math.PI / 180;
   const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
@@ -32,8 +33,6 @@
 
   const ui = {
     tag: document.getElementById("globe-tag"),
-    altitude: document.getElementById("globe-altitude"),
-    altitudeValue: document.getElementById("globe-altitude-value"),
     centre: document.getElementById("globe-centre"),
     caption: document.getElementById("globe-caption"),
     status: document.getElementById("globe-status"),
@@ -302,10 +301,9 @@
     const lat = latDeg * DEG, lon = lonDeg * DEG;
     return out.set(radius * Math.cos(lat) * Math.cos(lon), radius * Math.sin(lat), -radius * Math.cos(lat) * Math.sin(lon));
   };
-  let altitudeScale = Number(ui.altitude ? ui.altitude.value : 4);
   const sceneFromEcef = (ecef, out) => {
     const g = ecefToGeodetic(ecef[0], ecef[1], ecef[2]);
-    return sceneFromLatLon(g.lat, g.lon, 1 + (g.height * altitudeScale) / SCENE_EARTH_RADIUS_KM, out);
+    return sceneFromLatLon(g.lat, g.lon, 1 + (g.height * ALTITUDE_SCALE) / SCENE_EARTH_RADIUS_KM, out);
   };
 
   // Rough solar position; only drives the day/night shading.
@@ -609,7 +607,7 @@
 
 
   // Keep the camera outside the satellite shell, or the satellites end up behind it.
-  const minDistance = () => 1.25 + (600 * altitudeScale) / SCENE_EARTH_RADIUS_KM;
+  const minDistance = () => 1.25 + (600 * ALTITUDE_SCALE) / SCENE_EARTH_RADIUS_KM;
 
   // Distance at which the whole globe fits the narrower side of the panel; zoom 1 is that.
   const fitDistance = () => {
@@ -662,14 +660,6 @@
     markDirty();
   }, { passive: false });
 
-  if (ui.altitude) {
-    ui.altitude.addEventListener("input", () => {
-      altitudeScale = Number(ui.altitude.value);
-      setText(ui.altitudeValue, `×${altitudeScale}`);
-      view.zoom = clampZoom(view.zoom);
-      markDirty();
-    });
-  }
   if (ui.centre) ui.centre.addEventListener("click", () => centreOnDish(true));
 
   // ---- Frame ----------------------------------------------------------------
@@ -745,7 +735,7 @@
     updateClouds(now);
     updateServing(now);
     const ring = updateFootprint();
-    setText(ui.caption, `ALTITUDE ×${altitudeScale} FOR VISIBILITY${ring ? ` · RING = ${ring.floor}° FLOOR AT ${ring.heightKm} KM` : ""}`);
+    setText(ui.caption, `ALTITUDE ×${ALTITUDE_SCALE} FOR VISIBILITY${ring ? ` · RING = ${ring.floor}° FLOOR AT ${ring.heightKm} KM` : ""}`);
     renderer.render(scene, camera);
   };
 

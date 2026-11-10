@@ -771,19 +771,8 @@ header {
   color: var(--label);
 }
 
-.globe-controls label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .globe-controls .range-button {
   flex: none;
-}
-
-.globe-controls input[type="range"] {
-  width: 90px;
-  accent-color: var(--amber);
 }
 
 .globe-readout {
@@ -923,9 +912,6 @@ header {
   }
   .globe-hint {
     display: none;
-  }
-  .globe-controls input[type="range"] {
-    width: 64px;
   }
 }
 
