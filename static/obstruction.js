@@ -8,6 +8,11 @@
   const MIN_TILT_DEG = 10;
   const MAX_TILT_DEG = 85;
   const NEAR_SIDE_ALPHA = 0.4; // the half of the dome facing the viewer fades to this
+  const PANEL_HALF_WIDTH = 0.13; // dish panel size and placement, in dome radii
+  const PANEL_HALF_LENGTH = 0.2;
+  const PANEL_HEIGHT = 0.1; // above the ground, for the shadow
+  const PANEL_THICKNESS = 0.012;
+  const PANEL_COLOURS = { face: "#aeb6bf", back: "#7b848e", edge: "#555e69", shadow: "rgba(0, 0, 0, 0.55)" };
   const TO_RADIANS = Math.PI / 180;
   const COMPASS = [
     { label: "N", azimuth: 0 },
@@ -217,7 +222,7 @@
       normal[0] * across[1] - normal[1] * across[0],
     ];
     const corner = (a, b, lift, height) =>
-      [0, 1, 2].map((i) => a * 0.13 * across[i] + b * 0.2 * along[i] + lift * normal[i] + (i === 2 ? height : 0));
+      [0, 1, 2].map((i) => a * PANEL_HALF_WIDTH * across[i] + b * PANEL_HALF_LENGTH * along[i] + lift * normal[i] + (i === 2 ? height : 0));
     const outline = (lift, height, flatten) =>
       [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => {
         const point = corner(a, b, lift, height);
@@ -234,11 +239,11 @@
 
     drawing.save();
     drawing.filter = "blur(4px)";
-    fillPolygon(outline(0, 0.1, true), "rgba(0, 0, 0, 0.55)");
+    fillPolygon(outline(0, PANEL_HEIGHT, true), PANEL_COLOURS.shadow);
     drawing.restore();
     const facing = dot3(normal, view.toward) > 0;
-    fillPolygon(outline(facing ? -0.012 : 0.012, 0.1, false), "#555e69");
-    fillPolygon(outline(0, 0.1, false), facing ? "#aeb6bf" : "#7b848e");
+    fillPolygon(outline(facing ? -PANEL_THICKNESS : PANEL_THICKNESS, PANEL_HEIGHT, false), PANEL_COLOURS.edge);
+    fillPolygon(outline(0, PANEL_HEIGHT, false), facing ? PANEL_COLOURS.face : PANEL_COLOURS.back);
   };
 
   const requestRender = () => {
