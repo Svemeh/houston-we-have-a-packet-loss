@@ -37,15 +37,13 @@ type HopPinger struct {
 func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSample]) *HopPinger {
 	pingers := make([]*Pinger, 0, len(targets))
 	for _, target := range targets {
-		pinger := NewPinger(target, nil, nil)
-		pinger.timeout = HopPingTimeout
-		pingers = append(pingers, pinger)
+		pingers = append(pingers, NewPinger(target))
 	}
 	return &HopPinger{pingers: pingers, hub: hub, logFile: logFile}
 }
 
-// Run pings until ctx is cancelled. Like Pinger.Run, errors are logged per hop
-// when they start and when they clear.
+// Run pings until ctx is cancelled. Errors are logged per hop when they start
+// and when they clear.
 func (hopPinger *HopPinger) Run(ctx context.Context) {
 	lastErrors := make(map[string]string, len(hopPinger.pingers))
 

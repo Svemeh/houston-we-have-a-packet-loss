@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"runtime"
 	"time"
 
@@ -19,51 +18,13 @@ type PingSample struct {
 
 func (sample PingSample) SampleTime() time.Time { return sample.Timestamp }
 
-// Pinger sends one echo per PingInterval to a single target, publishing each
-// result to its hub and log.
 type Pinger struct {
 	target     string
-	hub        *Hub[PingSample]
-	logFile    *LogFile[PingSample]
 	privileged bool
-	timeout    time.Duration
 }
 
-func NewPinger(target string, hub *Hub[PingSample], logFile *LogFile[PingSample]) *Pinger {
-	return &Pinger{
-		target:     target,
-		hub:        hub,
-		logFile:    logFile,
-		privileged: runtime.GOOS == "windows",
-		timeout:    PingTimeout,
-	}
-}
-
-// Run pings until ctx is cancelled. Errors are logged when they start and when
-// they clear, not once a second.
-func (pinger *Pinger) Run(ctx context.Context) {
-	lastError := ""
-
-	pingOnce := func() {
-		sample := pinger.PingOnce(ctx)
-		if ctx.Err() != nil {
-			return
-		}
-		if sample.Error != lastError {
-			if sample.Error != "" {
-				log.Printf("ping %s: %s", pinger.target, sample.Error)
-			} else {
-				log.Printf("ping %s: sending again", pinger.target)
-			}
-			lastError = sample.Error
-		}
-		pinger.hub.PublishSample(sample)
-		if err := pinger.logFile.Append(sample); err != nil {
-			log.Printf("ping log write failed: %v", err)
-		}
-	}
-
-	runEverySecondRandomPhase(ctx, "ping "+pinger.target, pingOnce)
+func NewPinger(target string) *Pinger {
+	return &Pinger{target: target, privileged: runtime.GOOS == "windows"}
 }
 
 // PingOnce sends a single echo and waits up to PingTimeout for the reply.
@@ -72,7 +33,7 @@ func (pinger *Pinger) PingOnce(ctx context.Context) PingSample {
 
 	echo := probing.New(pinger.target)
 	echo.Count = 1
-	echo.Timeout = pinger.timeout
+	echo.Timeout = PingTimeout
 	echo.SetPrivileged(pinger.privileged)
 	echo.SetLogger(probing.NoopLogger{})
 
@@ -87,6 +48,59 @@ func (pinger *Pinger) PingOnce(ctx context.Context) PingSample {
 	}
 	sample.RTTMs = float64(stats.MaxRtt.Microseconds()) / 1000
 	return sample
+}
+
+// pingSampleFrom picks target's echo out of a hop round; false when the round didn't ping it.
+func pingSampleFrom(round HopSample, target string) (PingSample, bool) {
+	result, measured := round.Hops[target]
+	if !measured {
+		return PingSample{}, false
+	}
+	return PingSample{Timestamp: round.Timestamp, Target: target, RTTMs: result.RTTMs, Lost: result.Lost, Error: result.Error}, true
+}
+
+// pingSamplesFrom picks target's echoes out of hop rounds.
+func pingSamplesFrom(rounds []HopSample, target string) []PingSample {
+	samples := make([]PingSample, 0, len(rounds))
+	for _, round := range rounds {
+		if sample, measured := pingSampleFrom(round, target); measured {
+			samples = append(samples, sample)
+		}
+	}
+	return samples
+}
+
+type hopTargetSource struct {
+	hops   SampleSource[HopSample]
+	target string
+}
+
+// Samples reads one target's echoes back out of the hop log.
+func (source hopTargetSource) Samples(ctx context.Context, query SampleQuery) ([]PingSample, error) {
+	rounds, err := source.hops.Samples(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return pingSamplesFrom(rounds, source.target), nil
+}
+
+// relayHopTarget republishes target's echo from every hop round to pingHub.
+func relayHopTarget(ctx context.Context, hopsHub *Hub[HopSample], pingHub *Hub[PingSample], target string) {
+	rounds, _, unsubscribe := hopsHub.Subscribe()
+	defer unsubscribe()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case round, open := <-rounds:
+			if !open {
+				return
+			}
+			if sample, measured := pingSampleFrom(round, target); measured {
+				pingHub.PublishSample(sample)
+			}
+		}
+	}
 }
 
 // PingBucket is one point of ping history: the worst RTT in a time bucket and

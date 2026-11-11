@@ -75,19 +75,12 @@ const (
 	ServingFloorMinSlots   = 1000  // about 4 h of tracking
 	ServingFloorPercentile = 0.001 // floor is this low percentile, so a few bad matches can't drag it down
 
-	// Ping: ICMP echo from this machine, independent of the dish.
-	// 1.1.1.1 is anycast, so it lands on the nearest Cloudflare edge.
-	// ~90 bytes per sample, 3600 per hour = ~320KB/hour, same retention as the dish log.
-	DefaultPingTarget  = "1.1.1.1"
-	DefaultPingLogPath = DataDir + "/machineToInternet.jsonl"
-	PingInterval       = 1 * time.Second
-	PingTimeout        = 1 * time.Second // no reply within this counts as lost
+	PingInterval = 1 * time.Second
+	// PingTimeout is shorter than PingInterval so a lost echo can't stretch a hop round past the next tick
+	PingTimeout = 800 * time.Millisecond
 
-	// HopPingTimeout is shorter than PingInterval so a lost echo can't stretch a hop round past the next tick
-	HopPingTimeout = 800 * time.Millisecond
-
+	// /pingevents and /pinghistory serve HopEndTarget's echoes from the hop pinger.
 	RoutePingEvents  = "/pingevents"
-	RoutePingLog     = "/pinglog"
 	RoutePingHistory = "/pinghistory"
 
 	RouteSkyEvents = "/skyevents"
@@ -165,7 +158,7 @@ const DishHopTarget = "192.168.100.1"
 func hopTargets(router string) []string {
 	targets := []string{
 		DishHopTarget,
-		"1.1.1.1", // Cloudflare anycast, same target as machineToInternet.jsonl
+		HopEndTarget,
 		"8.8.8.8", // Google, independent control path
 	}
 	if router != "" {
@@ -180,7 +173,8 @@ var HopLocalTargets = []string{DishHopTarget}
 
 const HopControlTarget = "8.8.8.8"
 
-const HopEndTarget = DefaultPingTarget
+// HopEndTarget is Cloudflare anycast, so it lands on the nearest edge.
+const HopEndTarget = "1.1.1.1"
 
 // TelemetrySample is one poll of the dish: the values it reported, or the
 // error that stopped us from reading them.
