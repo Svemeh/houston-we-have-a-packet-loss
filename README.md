@@ -38,7 +38,7 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 - **Hourly rollup** — loss, RTT p50/p90/p99/max and jitter per target, plus loss bucketed by second within the 15 s satellite slot. Kept forever at ~600 B/hour.
 - **Satellite sky view** — on the dashboard: every Starlink satellite above the horizon, propagated with SGP4 from SpaceX's own orbit predictions (Celestrak supplemental elements, refreshed every 2 h).
 - **Serving satellite and obstruction map** — names the satellite serving each 15 s slot by matching the arc it traces on the dish's obstruction map, and builds Houston's own obstruction map from those arcs, drawn as a 3D dome you can turn.
-- **Orbit view** — a 3D globe under the charts: the dish, the satellites above its horizon (the usable ones above the service floor highlighted) and, with `-track-satellite`, a beam to the matched serving satellite with its elevation, range, altitude and the last handover. Drawn from Natural Earth 1:50m outlines; three.js and the map data are served from the binary, so it works offline.
+- **Orbit view** — a 3D globe under the charts with every tracked satellite at its true altitude (the ones the dish can use highlighted). Click a satellite to see its orbit. With `-track-satellite`, a beam goes to the matched serving satellite, with its elevation, range, altitude and the last handover. NASA Blue Marble by day and city lights by night, Natural Earth 1:50m borders; three.js and the map data are served from the binary, so it works offline.
 - **Fake mode** — a synthetic dish that cycles through degraded, obstructed, no-signal and offline states, so the UI can be developed without hardware.
 - **Single binary, no database** — static files are embedded; data is append-only JSON Lines, pruned by atomic rewrite.
 
@@ -163,6 +163,7 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `/log` · `/hopslog` | Raw JSONL |
 | `/location` | Observer location: `GET`, or `POST` JSON `{"latitude_deg":…,"longitude_deg":…}` |
 | `/serving` · `/obstructionmap` | Latest serving-satellite slot · Houston's own obstruction map (`enabled:false` without `-track-satellite`) |
+| `/constellation` | Every tracked satellite's SGP4 position and velocity (TEME) at one instant, for the orbit view |
 
 ## Project layout
 
@@ -181,7 +182,7 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `hub.go` · `server.go` | SSE fan-out and HTTP routes |
 | `sky.go` · `settings.go` | Orbit element fetch/cache and SGP4 propagation · location saved from the dashboard |
 | `static/` | Dashboard (vanilla JS, canvas charts; `globe.js` is the orbit view) |
-| `static/vendor/` | three.js r128, topojson-client, Natural Earth 1:50m countries (world-atlas, requantised), NASA Blue Marble land colour |
+| `static/vendor/` | three.js r128, topojson-client, Natural Earth 1:50m countries (world-atlas, requantised), NASA Blue Marble and Black Marble (2048 px) |
 | `install.sh` · `install.ps1` | Installers (macOS/Linux · Windows) |
 
 ## Testing

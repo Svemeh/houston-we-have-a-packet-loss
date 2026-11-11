@@ -119,12 +119,20 @@
           <canvas id="chart-machine-to-internet-loss"></canvas>
         </div>
         <div class="scope is-globe">
-          <div class="scope-head"><span class="label">Orbit View</span><span class="scope-range-label globe-hint">drag to turn · ctrl + scroll to zoom</span></div>
+          <div class="scope-head"><span class="label">Orbit View</span><span class="scope-range-label globe-hint">drag to turn · ctrl + scroll to zoom · click a satellite</span></div>
           <div class="globe-layout">
             <div class="globe-column">
               <div class="globe-stage" id="globe-stage">
                 <canvas id="globe-canvas" aria-label="Earth with the dish, the satellites above it and a beam to the serving satellite"></canvas>
                 <div class="globe-tag" id="globe-tag" hidden></div>
+                <div class="globe-tag is-pick" id="globe-pick-tag" hidden></div>
+                <div class="globe-pick" id="globe-pick" hidden>
+                  <div class="globe-row">
+                    <span class="globe-pick-name" id="globe-pick-name">—</span>
+                    <button type="button" class="globe-pick-close" id="globe-pick-close" aria-label="Clear selection">×</button>
+                  </div>
+                  <div class="globe-pick-detail tabular-num" id="globe-pick-detail"></div>
+                </div>
               </div>
               <div class="globe-under">
                 <div class="globe-caption" id="globe-caption"></div>

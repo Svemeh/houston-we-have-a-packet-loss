@@ -747,6 +747,49 @@ header {
   text-shadow: 0 0 6px #000;
 }
 
+.globe-tag.is-pick {
+  color: #bff8ff;
+}
+
+.globe-pick {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: 230px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  font-family: var(--mono);
+}
+
+.globe-pick[hidden] {
+  display: none;
+}
+
+.globe-pick-name {
+  font-size: 12px;
+  color: #bff8ff;
+}
+
+.globe-pick-detail {
+  margin-top: 3px;
+  white-space: pre-line;
+  font-size: 10px;
+  color: var(--label);
+}
+
+.globe-pick-close {
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--label);
+  cursor: pointer;
+}
+
 .globe-under {
   display: flex;
   flex-wrap: wrap;

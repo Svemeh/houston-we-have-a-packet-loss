@@ -2,7 +2,10 @@
   "use strict";
 
   const WORLD_URL = "/vendor/world-50m.json";
-  const COLOUR_URL = "/vendor/earth-colour.jpg";
+  const DAY_URL = "/vendor/earth-day.jpg";
+  const NIGHT_URL = "/vendor/earth-night.jpg";
+  const CONSTELLATION_URL = "/constellation";
+  const CONSTELLATION_REFRESH_MS = 60000; // fresh SGP4 states every minute; circular orbits in between are off by well under 1 km
   const SERVING_STALE_MS = 45000; // three slots without a result
   const SLOT_SECONDS = 15;
   const SLOT_BOUNDARY_OFFSET = 12; // handovers at :12/:27/:42/:57 UTC
@@ -10,11 +13,11 @@
   const WGS84_A_KM = 6378.137;
   const WGS84_E2 = 0.00669437999014;
   const LIGHT_KM_PER_MS = 299.792458;
-  const TRAIL_SECONDS = 90; // measured track drawn behind the serving satellite
-  const EXTRAPOLATE_MAX_S = 2; // snapshots come every second; move dots between them
+  const EARTH_ROTATION_RAD_S = 7.2921158553e-5;
   const IDLE_FRAME_MS = 100; // about 10 fps unless the view is moving
-  const TEXTURE_MAX_PX = 4096;
-  const ALTITUDE_SCALE = 4; // satellite heights drawn 4× so they lift off the globe
+  const POSITION_UPDATE_MS = 100; // satellites move a few pixels a second; no need to recompute every frame
+  const PICK_RADIUS_PX = 12; // how close a click has to land to a satellite
+  const ORBIT_POINTS = 256;
   const GLOBE_FIT_RADIUS = 1.1; // Earth plus its glow, with a little margin, fits the panel
   const DEG = Math.PI / 180;
   const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
@@ -33,6 +36,11 @@
 
   const ui = {
     tag: document.getElementById("globe-tag"),
+    pick: document.getElementById("globe-pick"),
+    pickName: document.getElementById("globe-pick-name"),
+    pickDetail: document.getElementById("globe-pick-detail"),
+    pickClose: document.getElementById("globe-pick-close"),
+    pickTag: document.getElementById("globe-pick-tag"),
     centre: document.getElementById("globe-centre"),
     caption: document.getElementById("globe-caption"),
     status: document.getElementById("globe-status"),
@@ -98,41 +106,22 @@
   let snapshot = null;
   let serving = null;
   let observer = null;
-  const tracks = new Map();
+  const live = new Map(); // snapshot objects by name: the dish's exact view, above its horizon
   let slotHistory = [];
 
   const applyLocation = (location) => {
     observer = location && location.location_set
       ? { lat: location.latitude_deg, lon: location.longitude_deg, ecef: geodeticToEcef(location.latitude_deg, location.longitude_deg, 0) }
       : null;
-    tracks.clear();
     if (renderer) centreOnDish(false);
     markDirty();
   };
 
   const applySnapshot = (next) => {
     snapshot = next;
-    const now = performance.now();
-    const seen = new Set();
-    if (observer && next.location_set) {
-      for (const object of next.objects || []) {
-        const ecef = lookToEcef(observer, object.az, object.el, object.range_km);
-        const track = tracks.get(object.name) || { history: [] };
-        const dt = (now - (track.at || 0)) / 1000;
-        track.velocity = track.ecef && dt > 0.3 && dt < 3
-          ? [(ecef[0] - track.ecef[0]) / dt, (ecef[1] - track.ecef[1]) / dt, (ecef[2] - track.ecef[2]) / dt]
-          : null;
-        track.ecef = ecef;
-        track.at = now;
-        track.object = object;
-        track.history.push([now, ecef[0], ecef[1], ecef[2]]);
-        while (track.history.length && now - track.history[0][0] > TRAIL_SECONDS * 1000) track.history.shift();
-        tracks.set(object.name, track);
-        seen.add(object.name);
-      }
-    }
-    for (const name of tracks.keys()) if (!seen.has(name)) tracks.delete(name);
-    if (renderer) rebuildPoints();
+    live.clear();
+    if (observer && next.location_set) for (const object of next.objects || []) live.set(object.name, object);
+    if (renderer) rebuildUsable();
     updateReadout();
     markDirty();
   };
@@ -153,17 +142,11 @@
     return slot;
   };
 
-  // The beam only ever points at a matched satellite we can also see live.
-  const servingTrack = () => {
+  // The beam only ever points at a matched satellite the dish can also see right now.
+  const servingObject = () => {
     const slot = currentSlot();
     if (!slot || slot.status !== "matched" || !slot.best) return null;
-    return tracks.get(slot.best.satellite) || null;
-  };
-
-  const positionNow = (track, now) => {
-    if (!track.velocity) return track.ecef;
-    const dt = Math.min((now - track.at) / 1000, EXTRAPOLATE_MAX_S);
-    return [track.ecef[0] + track.velocity[0] * dt, track.ecef[1] + track.velocity[1] * dt, track.ecef[2] + track.velocity[2] * dt];
+    return live.get(slot.best.satellite) || null;
   };
 
   // ---- Readout --------------------------------------------------------------
@@ -202,7 +185,7 @@
 
   function updateReadout() {
     const slot = currentSlot();
-    const track = servingTrack();
+    const object = servingObject();
     clearValues();
     setText(ui.slot, slot ? `IDENTIFIED FOR SLOT ${slotLabel(slot.slot_start)}` : "SLOT");
 
@@ -227,9 +210,8 @@
       setStatus("● MATCHED", "matched");
       setText(ui.name, slot.best.satellite);
       setText(ui.fit, `${slot.best.fit_deg.toFixed(2)}°`);
-      if (track) {
-        const object = track.object;
-        const height = ecefToGeodetic(...track.ecef).height;
+      if (object) {
+        const height = ecefToGeodetic(...lookToEcef(observer, object.az, object.el, object.range_km)).height;
         setText(ui.sub, `NORAD ${slot.best.norad_id}`);
         setText(ui.el, `${Math.round(object.el)}°`);
         setText(ui.az, `${Math.round(object.az) % 360}° ${COMPASS[Math.round(object.az / 22.5) % 16]}`);
@@ -301,9 +283,9 @@
     const lat = latDeg * DEG, lon = lonDeg * DEG;
     return out.set(radius * Math.cos(lat) * Math.cos(lon), radius * Math.sin(lat), -radius * Math.cos(lat) * Math.sin(lon));
   };
-  const sceneFromEcef = (ecef, out) => {
-    const g = ecefToGeodetic(ecef[0], ecef[1], ecef[2]);
-    return sceneFromLatLon(g.lat, g.lon, 1 + (g.height * ALTITUDE_SCALE) / SCENE_EARTH_RADIUS_KM, out);
+  const sceneFromEcef = (x, y, z, out) => {
+    const g = ecefToGeodetic(x, y, z);
+    return sceneFromLatLon(g.lat, g.lon, 1 + g.height / SCENE_EARTH_RADIUS_KM, out);
   };
 
   // Rough solar position; only drives the day/night shading.
@@ -315,128 +297,24 @@
     return sceneFromLatLon(declination, -(hours - 12) * 15, 1).normalize();
   };
 
-  // Equirectangular land/ocean art, drawn once. Land is cut out so the
-  // shader fills it with posterised Blue Marble colour.
-  const drawMapTexture = (world) => {
-    const width = Math.min(TEXTURE_MAX_PX, renderer.capabilities.maxTextureSize);
-    const height = width / 2, f = width / 8192;
-    const map = document.createElement("canvas");
-    map.width = width;
-    map.height = height;
-    const ctx = map.getContext("2d");
-    const x = (lon) => ((lon + 180) / 360) * width;
-    const y = (lat) => ((90 - lat) / 180) * height;
-
-    // Longitudes made continuous across ±180; a ring that circles a pole is closed through it.
-    const unwrap = (points) => {
-      const out = [];
-      let shift = 0;
-      for (const [lon, lat] of points) {
-        if (out.length) {
-          const step = lon + shift - out[out.length - 1][0];
-          if (step > 180) shift -= 360;
-          else if (step < -180) shift += 360;
-        }
-        out.push([lon + shift, lat]);
-      }
-      return out;
-    };
-    const tracePolygons = (multiPolygon) => {
-      for (const polygon of multiPolygon.coordinates) {
-        for (const ring of polygon) {
-          const points = unwrap(ring);
-          const winding = points[points.length - 1][0] - points[0][0];
-          if (Math.abs(winding) > 180) {
-            const pole = points.reduce((sum, p) => sum + p[1], 0) < 0 ? -90 : 90;
-            points.push([points[points.length - 1][0], pole], [points[0][0], pole]);
-          }
-          for (const offset of [-360, 0, 360]) {
-            points.forEach(([lon, lat], i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, x(lon + offset), y(lat)));
-            ctx.closePath();
-          }
-        }
-      }
-    };
-    const traceLines = (multiLine) => {
-      for (const line of multiLine.coordinates) {
-        const points = unwrap(line);
-        for (const offset of [-360, 0, 360]) {
-          points.forEach(([lon, lat], i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, x(lon + offset), y(lat)));
-        }
-      }
-    };
-
-    const countries = world.objects.countries;
-    const land = topojson.merge(world, countries.geometries);
-    const borders = topojson.mesh(world, countries, (a, b) => a !== b);
-
-    ctx.fillStyle = "#0d58b0";
-    ctx.fillRect(0, 0, width, height);
-    let seed = 42;
-    const random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
-    ctx.strokeStyle = "rgba(80, 170, 255, 0.45)";
-    ctx.lineWidth = 3 * f;
-    ctx.lineCap = "round";
-    for (let i = 0; i < 2200; i++) {
-      const wx = random() * width, wy = height * 0.08 + random() * height * 0.84, s = (14 + random() * 10) * f;
-      ctx.beginPath();
-      ctx.moveTo(wx - s, wy);
-      ctx.quadraticCurveTo(wx - s / 2, wy - s / 2, wx, wy);
-      ctx.quadraticCurveTo(wx + s / 2, wy + s / 2, wx + s, wy);
-      ctx.stroke();
-    }
-    ctx.lineJoin = "round";
-    for (const [colour, lineWidth] of [["#1572d6", 26], ["#2a8cf0", 12]]) {
-      ctx.beginPath();
-      tracePolygons(land);
-      ctx.strokeStyle = colour;
-      ctx.lineWidth = lineWidth * f;
-      ctx.stroke();
-    }
-    ctx.globalCompositeOperation = "destination-out";
-    ctx.beginPath();
-    tracePolygons(land);
-    ctx.fill("evenodd");
-    ctx.globalCompositeOperation = "source-over";
-    ctx.beginPath();
-    traceLines(borders);
-    ctx.strokeStyle = "rgba(255, 250, 225, 0.55)";
-    ctx.lineWidth = 9 * f;
-    ctx.stroke();
-    ctx.setLineDash([16 * f, 6 * f]);
-    ctx.strokeStyle = "rgba(14, 22, 30, 0.9)";
-    ctx.lineWidth = 4 * f;
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    tracePolygons(land);
-    ctx.strokeStyle = "#14202c";
-    ctx.lineWidth = 4 * f;
-    ctx.stroke();
-
-    const texture = new THREE.CanvasTexture(map);
-    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-    return texture;
-  };
-
+  // NASA Blue Marble by day, Black Marble city lights by night, soft terminator.
   const earthMaterial = new THREE.ShaderMaterial({
     uniforms: {
-      mapT: { value: null },
-      colourT: { value: null },
+      dayT: { value: null },
+      nightT: { value: null },
       sun: { value: new THREE.Vector3(1, 0, 0) },
       ready: { value: 0 },
     },
     vertexShader:
       "varying vec2 vUv; varying vec3 vN; void main(){ vUv=uv; vN=normalize((modelMatrix*vec4(normal,0.0)).xyz); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
     fragmentShader:
-      "uniform sampler2D mapT; uniform sampler2D colourT; uniform vec3 sun; uniform float ready; varying vec2 vUv; varying vec3 vN;" +
-      "void main(){ float d=dot(normalize(vN),sun); float l=0.42+0.33*smoothstep(-0.10,-0.07,d)+0.25*smoothstep(0.22,0.25,d);" +
-      " vec4 m=texture2D(mapT,vUv); vec3 p=texture2D(colourT,vUv).rgb; float y=dot(p,vec3(0.299,0.587,0.114)); vec3 h=p/max(y,0.02);" +
-      " float q=0.34+floor(y*5.0)/5.0*0.72; vec3 land=clamp(mix(vec3(q),h*q,1.65)*1.15,0.0,1.0); vec3 c=mix(land,m.rgb,m.a);" +
-      " c=mix(vec3(0.05,0.35,0.69),c,ready); gl_FragColor=vec4(mix(c*vec3(0.28,0.34,0.62),c,l),1.0); }",
+      "uniform sampler2D dayT; uniform sampler2D nightT; uniform vec3 sun; uniform float ready; varying vec2 vUv; varying vec3 vN;" +
+      "void main(){ float d=dot(normalize(vN),sun); float k=smoothstep(-0.12,0.16,d);" +
+      " vec3 day=texture2D(dayT,vUv).rgb; vec3 night=texture2D(nightT,vUv).rgb;" +
+      " vec3 lit=day*(0.35+1.0*max(d,0.0)); vec3 dark=day*0.12+night*vec3(1.0,0.82,0.55)*1.3;" +
+      " vec3 c=mix(vec3(0.03,0.08,0.16),mix(dark,lit,k),ready); gl_FragColor=vec4(c,1.0); }",
   });
   scene.add(new THREE.Mesh(new THREE.SphereGeometry(1, 128, 96), earthMaterial));
-  scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.012, 96, 64), new THREE.MeshBasicMaterial({ color: 0x0b131c, side: THREE.BackSide })));
   scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.035, 96, 64), new THREE.ShaderMaterial({
     side: THREE.BackSide,
     blending: THREE.AdditiveBlending,
@@ -448,7 +326,7 @@
 
   const coastAndBorders = (world) => {
     const group = new THREE.Group();
-    for (const [filter, opacity] of [[(a, b) => a === b, 0.9], [(a, b) => a !== b, 0.75]]) {
+    for (const [filter, opacity] of [[(a, b) => a === b, 0.28], [(a, b) => a !== b, 0.2]]) {
       const points = [];
       for (const line of topojson.mesh(world, world.objects.countries, filter).coordinates) {
         for (let i = 1; i < line.length; i++) {
@@ -457,62 +335,148 @@
       }
       group.add(new THREE.LineSegments(
         new THREE.BufferGeometry().setFromPoints(points),
-        new THREE.LineBasicMaterial({ color: 0x0e161e, transparent: true, opacity }),
+        new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity, depthWrite: false }),
       ));
     }
     return group;
   };
 
-  Promise.all([
-    fetch(WORLD_URL).then((response) => response.json()),
-    new Promise((resolve, reject) => new THREE.TextureLoader().load(COLOUR_URL, resolve, undefined, reject)),
-  ]).then(([world, colour]) => {
-    earthMaterial.uniforms.mapT.value = drawMapTexture(world);
-    earthMaterial.uniforms.colourT.value = colour;
-    earthMaterial.uniforms.ready.value = 1;
-    scene.add(coastAndBorders(world));
-    markDirty();
-  }).catch((error) => console.error("could not load the globe map", error));
+  const loadTexture = (url) => new Promise((resolve, reject) => new THREE.TextureLoader().load(url, resolve, undefined, reject));
+  Promise.all([fetch(WORLD_URL).then((response) => response.json()), loadTexture(DAY_URL), loadTexture(NIGHT_URL)])
+    .then(([world, day, night]) => {
+      for (const texture of [day, night]) texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      earthMaterial.uniforms.dayT.value = day;
+      earthMaterial.uniforms.nightT.value = night;
+      earthMaterial.uniforms.ready.value = 1;
+      scene.add(coastAndBorders(world));
+      markDirty();
+    })
+    .catch((error) => console.error("could not load the globe map", error));
 
-  const dotTexture = (fill, stroke) => {
+  // ---- Satellites -------------------------------------------------------------
+
+  const glowTexture = (colour) => {
     const dot = document.createElement("canvas");
-    dot.width = dot.height = 32;
+    dot.width = dot.height = 64;
     const ctx = dot.getContext("2d");
-    ctx.beginPath();
-    ctx.arc(16, 16, 11, 0, 2 * Math.PI);
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = stroke;
-    ctx.stroke();
+    const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gradient.addColorStop(0, "#ffffff");
+    gradient.addColorStop(0.25, colour);
+    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 64, 64);
     return new THREE.CanvasTexture(dot);
   };
-  const makeCloud = (fill, stroke, size) => {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3));
-    const points = new THREE.Points(geometry, new THREE.PointsMaterial({ map: dotTexture(fill, stroke), size, sizeAttenuation: false, alphaTest: 0.5 }));
+  const makeCloud = (colour, size) => {
+    const points = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({
+      map: glowTexture(colour), size, sizeAttenuation: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
     points.frustumCulled = false;
     scene.add(points);
-    return { points, names: [] };
+    return points;
   };
-  const dimCloud = makeCloud("#4a6076", "#101820", 5);
-  const usableCloud = makeCloud("#f5b740", "#14202c", 8);
+  const allCloud = makeCloud("#19e6ff", 5);
+  const usableCloud = makeCloud("#d4ff1f", 11);
 
-  function rebuildPoints() {
-    dimCloud.names = [];
-    usableCloud.names = [];
-    for (const [name, track] of tracks) (track.object.in_cone ? usableCloud : dimCloud).names.push(name);
-    for (const cloud of [dimCloud, usableCloud]) {
-      cloud.points.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(cloud.names.length * 3), 3));
+  // Each satellite as a circle in its orbital plane, re-anchored to SGP4 every refresh.
+  let constellation = null;
+  let usable = [];
+  let selectedName = "";
+  let lastPositions = 0;
+
+  const applyConstellation = (payload) => {
+    const rows = payload.satellites || [];
+    const n = rows.length;
+    const next = {
+      t0: Date.parse(payload.timestamp),
+      theta0: payload.theta_g_rad,
+      names: new Array(n),
+      ids: new Int32Array(n),
+      radius: new Float64Array(n),
+      rate: new Float64Array(n),
+      u1: new Float64Array(n * 3),
+      u2: new Float64Array(n * 3),
+      index: new Map(),
+      scene: new Float32Array(n * 3),
+    };
+    rows.forEach(([name, id, x, y, z, vx, vy, vz], i) => {
+      const r = Math.hypot(x, y, z);
+      const hx = y * vz - z * vy, hy = z * vx - x * vz, hz = x * vy - y * vx, h = Math.hypot(hx, hy, hz);
+      next.names[i] = name;
+      next.ids[i] = id;
+      next.radius[i] = r;
+      next.rate[i] = h / (r * r);
+      next.u1.set([x / r, y / r, z / r], i * 3);
+      const ax = hy * z - hz * y, ay = hz * x - hx * z, az = hx * y - hy * x, a = Math.hypot(ax, ay, az);
+      next.u2.set([ax / a, ay / a, az / a], i * 3);
+      next.index.set(name, i);
+    });
+    allCloud.geometry.setAttribute("position", new THREE.BufferAttribute(next.scene, 3));
+    constellation = next;
+    rebuildUsable();
+    lastPositions = 0;
+    markDirty();
+  };
+
+  const loadConstellation = async () => {
+    try {
+      const response = await fetch(CONSTELLATION_URL, { cache: "no-store" });
+      if (response.ok) applyConstellation(await response.json());
+    } catch (error) {
+      console.warn("constellation fetch failed", error);
     }
+  };
+
+  // Usable = above the service floor from the dish, as the snapshot says.
+  function rebuildUsable() {
+    usable = [];
+    if (constellation && snapshot) {
+      for (const object of snapshot.objects || []) {
+        const i = constellation.index.get(object.name);
+        if (object.in_cone && i !== undefined) usable.push(i);
+      }
+    }
+    usableCloud.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(usable.length * 3), 3));
+    lastPositions = 0;
   }
+
+  // Earth-fixed position of satellite i at time t, from its circular orbit.
+  const satelliteEcef = (i, t, angle = null) => {
+    const c = constellation;
+    const dt = (t - c.t0) / 1000;
+    const a = angle === null ? c.rate[i] * dt : angle;
+    const cos = Math.cos(a), sin = Math.sin(a), r = c.radius[i], k = i * 3;
+    const X = r * (c.u1[k] * cos + c.u2[k] * sin);
+    const Y = r * (c.u1[k + 1] * cos + c.u2[k + 1] * sin);
+    const Z = r * (c.u1[k + 2] * cos + c.u2[k + 2] * sin);
+    const theta = c.theta0 + EARTH_ROTATION_RAD_S * dt;
+    return [X * Math.cos(theta) + Y * Math.sin(theta), -X * Math.sin(theta) + Y * Math.cos(theta), Z];
+  };
+
+  const scratch = new THREE.Vector3();
+  const updatePositions = (t) => {
+    if (!constellation) return;
+    const c = constellation;
+    for (let i = 0; i < c.names.length; i++) {
+      sceneFromEcef(...satelliteEcef(i, t), scratch);
+      c.scene[i * 3] = scratch.x;
+      c.scene[i * 3 + 1] = scratch.y;
+      c.scene[i * 3 + 2] = scratch.z;
+    }
+    allCloud.geometry.attributes.position.needsUpdate = true;
+    const positions = usableCloud.geometry.attributes.position;
+    usable.forEach((i, j) => positions.setXYZ(j, c.scene[i * 3], c.scene[i * 3 + 1], c.scene[i * 3 + 2]));
+    positions.needsUpdate = true;
+  };
+  const scenePosition = (i, out = new THREE.Vector3()) =>
+    out.set(constellation.scene[i * 3], constellation.scene[i * 3 + 1], constellation.scene[i * 3 + 2]);
 
   const dish = new THREE.Points(
     new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(3), 3)),
-    new THREE.PointsMaterial({ map: dotTexture("#ffffff", "#14202c"), size: 10, sizeAttenuation: false, alphaTest: 0.5 }),
+    new THREE.PointsMaterial({ map: glowTexture("#ffffff"), size: 14, sizeAttenuation: false, transparent: true, depthWrite: false }),
   );
   scene.add(dish);
-  const footprint = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: amber, transparent: true, opacity: 0.55 }));
+  const footprint = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: amber, transparent: true, opacity: 0.6 }));
   scene.add(footprint);
   let footprintKey = "";
 
@@ -545,47 +509,25 @@
     return { heightKm, floor };
   };
 
-  const beamCore = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 1, 12, 1, true),
+  const beamCore = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 1, 12, 1, true),
     new THREE.MeshBasicMaterial({ color: amber, transparent: true, opacity: 0.95, depthWrite: false }));
-  const beamGlow = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 1, 16, 1, true),
-    new THREE.MeshBasicMaterial({ color: amber, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false }));
-  const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.009, 12, 8), new THREE.MeshBasicMaterial({ color: 0xfff1cc }));
-  const servingHalo = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 12),
-    new THREE.MeshBasicMaterial({ color: amber, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
-  const servingIcon = (() => {
-    const icon = document.createElement("canvas");
-    icon.width = 192;
-    icon.height = 96;
-    const g = icon.getContext("2d");
-    g.lineWidth = 6;
-    g.strokeStyle = "#14202c";
-    g.lineJoin = "round";
-    g.beginPath();
-    g.moveTo(36, 48);
-    g.lineTo(156, 48);
-    g.stroke();
-    for (const [px, py] of [[8, 30], [124, 30]]) {
-      g.fillStyle = "#3d6f9e";
-      g.fillRect(px, py, 60, 36);
-      g.strokeRect(px, py, 60, 36);
-      g.lineWidth = 2.5;
-      g.beginPath();
-      g.moveTo(px + 20, py);
-      g.lineTo(px + 20, py + 36);
-      g.moveTo(px + 40, py);
-      g.lineTo(px + 40, py + 36);
-      g.stroke();
-      g.lineWidth = 6;
-    }
-    g.fillStyle = "#f5b740";
-    g.fillRect(76, 28, 40, 40);
-    g.strokeRect(76, 28, 40, 40);
-    return new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(icon) }));
-  })();
-  const trail = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: amber, transparent: true, opacity: 0.35 }));
-  trail.frustumCulled = false;
-  const servingParts = [beamCore, beamGlow, pulse, servingHalo, servingIcon, trail];
+  const beamGlow = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 1, 16, 1, true),
+    new THREE.MeshBasicMaterial({ color: amber, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.006, 12, 8), new THREE.MeshBasicMaterial({ color: 0xfff1cc }));
+  const servingMark = new THREE.Points(
+    new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(3), 3)),
+    new THREE.PointsMaterial({ map: glowTexture("#f5b740"), size: 22, sizeAttenuation: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
+  );
+  const servingParts = [beamCore, beamGlow, pulse, servingMark];
   for (const part of servingParts) scene.add(part);
+
+  const selectedMark = new THREE.Points(
+    new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(3), 3)),
+    new THREE.PointsMaterial({ map: glowTexture("#ffffff"), size: 18, sizeAttenuation: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
+  );
+  const orbit = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xe6fdff, transparent: true, opacity: 1 }));
+  orbit.frustumCulled = false;
+  scene.add(selectedMark, orbit);
 
   // ---- Camera and input -----------------------------------------------------
 
@@ -605,28 +547,67 @@
     markDirty();
   }
 
-
   // Keep the camera outside the satellite shell, or the satellites end up behind it.
-  const minDistance = () => 1.25 + (600 * ALTITUDE_SCALE) / SCENE_EARTH_RADIUS_KM;
+  const MIN_DISTANCE = 1.25 + 600 / SCENE_EARTH_RADIUS_KM;
 
   // Distance at which the whole globe fits the narrower side of the panel; zoom 1 is that.
   const fitDistance = () => {
     const half = (camera.fov / 2) * DEG;
     return GLOBE_FIT_RADIUS / Math.sin(Math.min(half, Math.atan(Math.tan(half) * camera.aspect)));
   };
-  const cameraDistance = () => Math.max(minDistance(), fitDistance() * view.zoom);
-  const clampZoom = (zoom) => Math.min(2, Math.max(minDistance() / fitDistance(), zoom));
+  const cameraDistance = () => Math.max(MIN_DISTANCE, fitDistance() * view.zoom);
+  const clampZoom = (zoom) => Math.min(2, Math.max(MIN_DISTANCE / fitDistance(), zoom));
 
   const placeCamera = () => {
     sceneFromLatLon(view.lat, view.lon, cameraDistance(), camera.position);
     camera.lookAt(0, 0, 0);
   };
 
+  // True when the Earth sits between the camera and the point.
+  const behindEarth = (point) => {
+    const toPoint = point.clone().sub(camera.position);
+    const distance = toPoint.length();
+    toPoint.normalize();
+    const b = camera.position.dot(toPoint), c = camera.position.lengthSq() - 1, disc = b * b - c;
+    return disc > 0 && -b - Math.sqrt(disc) < distance;
+  };
+
+  const placeTag = (tag, point, text) => {
+    const projected = point.clone().project(camera);
+    const rect = stage.getBoundingClientRect();
+    tag.hidden = behindEarth(point) || projected.z > 1;
+    tag.style.left = `${((projected.x + 1) / 2) * rect.width}px`;
+    tag.style.top = `${((1 - projected.y) / 2) * rect.height}px`;
+    setText(tag, text);
+  };
+
+  const pick = (clientX, clientY) => {
+    if (!constellation) return;
+    const rect = stage.getBoundingClientRect();
+    const point = new THREE.Vector3();
+    let best = -1, bestDistance = PICK_RADIUS_PX;
+    for (let i = 0; i < constellation.names.length; i++) {
+      scenePosition(i, point).project(camera);
+      if (point.z > 1) continue;
+      const dx = ((point.x + 1) / 2) * rect.width + rect.left - clientX;
+      const dy = ((1 - point.y) / 2) * rect.height + rect.top - clientY;
+      const distance = Math.hypot(dx, dy);
+      if (distance < bestDistance && !behindEarth(scenePosition(i))) {
+        best = i;
+        bestDistance = distance;
+      }
+    }
+    selectedName = best >= 0 ? constellation.names[best] : "";
+    markDirty();
+  };
+
   const pointers = new Map();
   let lastPinch = 0;
+  let pressed = null;
   canvas.addEventListener("pointerdown", (event) => {
     canvas.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    pressed = pointers.size === 1 ? { x: event.clientX, y: event.clientY } : null;
     target = null;
   });
   canvas.addEventListener("pointermove", (event) => {
@@ -648,6 +629,10 @@
   const release = (event) => {
     pointers.delete(event.pointerId);
     lastPinch = 0;
+    if (event.type === "pointerup" && pressed && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < 5) {
+      pick(event.clientX, event.clientY);
+    }
+    pressed = null;
   };
   canvas.addEventListener("pointerup", release);
   canvas.addEventListener("pointercancel", release);
@@ -661,38 +646,28 @@
   }, { passive: false });
 
   if (ui.centre) ui.centre.addEventListener("click", () => centreOnDish(true));
+  if (ui.pickClose) {
+    ui.pickClose.addEventListener("click", () => {
+      selectedName = "";
+      markDirty();
+    });
+  }
 
   // ---- Frame ----------------------------------------------------------------
 
-  const scratch = new THREE.Vector3();
   const direction = new THREE.Vector3();
 
-  const updateClouds = (now) => {
-    for (const cloud of [dimCloud, usableCloud]) {
-      const positions = cloud.points.geometry.attributes.position;
-      cloud.names.forEach((name, i) => {
-        const track = tracks.get(name);
-        if (!track) return;
-        sceneFromEcef(positionNow(track, now), scratch);
-        positions.setXYZ(i, scratch.x, scratch.y, scratch.z);
-      });
-      positions.needsUpdate = true;
-    }
-  };
-
-  const updateServing = (now) => {
-    const track = servingTrack();
-    for (const part of servingParts) part.visible = Boolean(track && observer);
-    if (!track || !observer) {
+  const updateServing = () => {
+    const object = servingObject();
+    const i = object && constellation ? constellation.index.get(object.name) : undefined;
+    const show = Boolean(observer && i !== undefined);
+    for (const part of servingParts) part.visible = show;
+    if (!show) {
       ui.tag.hidden = true;
       return;
     }
-    const satellite = sceneFromEcef(positionNow(track, now), new THREE.Vector3());
-    servingIcon.position.copy(satellite);
-    servingHalo.position.copy(satellite);
-    const cameraDistance = camera.position.distanceTo(satellite);
-    servingIcon.scale.set(0.05 * cameraDistance, 0.025 * cameraDistance, 1);
-
+    const satellite = scenePosition(i);
+    servingMark.position.copy(satellite);
     direction.subVectors(satellite, dish.position);
     const length = direction.length();
     direction.normalize();
@@ -702,27 +677,41 @@
       beam.scale.set(1, length, 1);
     }
     pulse.position.copy(dish.position).addScaledVector(direction, length * (reduceMotion ? 0.5 : (Date.now() % 1100) / 1100));
+    placeTag(ui.tag, satellite, object.name);
+  };
 
-    const trailPoints = track.history.map(([, x, y, z]) => sceneFromEcef([x, y, z], new THREE.Vector3()));
-    trailPoints.push(satellite.clone());
-    trail.geometry.dispose();
-    trail.geometry = new THREE.BufferGeometry().setFromPoints(trailPoints);
+  const updateSelection = (t) => {
+    const i = constellation && selectedName ? constellation.index.get(selectedName) : undefined;
+    const show = i !== undefined;
+    selectedMark.visible = orbit.visible = show;
+    if (ui.pick) ui.pick.hidden = !show;
+    if (!show) {
+      if (ui.pickTag) ui.pickTag.hidden = true;
+      return;
+    }
+    const c = constellation;
+    const satellite = scenePosition(i);
+    selectedMark.position.copy(satellite);
+    const ring = [];
+    for (let k = 0; k <= ORBIT_POINTS; k++) {
+      ring.push(sceneFromEcef(...satelliteEcef(i, t, (2 * Math.PI * k) / ORBIT_POINTS), new THREE.Vector3()));
+    }
+    orbit.geometry.dispose();
+    orbit.geometry = new THREE.BufferGeometry().setFromPoints(ring);
 
-    const toSatellite = satellite.clone().sub(camera.position);
-    const distance = toSatellite.length();
-    toSatellite.normalize();
-    const b = camera.position.dot(toSatellite), c = camera.position.lengthSq() - 1, disc = b * b - c;
-    const hidden = disc > 0 && -b - Math.sqrt(disc) < distance;
-    const projected = satellite.clone().project(camera);
-    const rect = stage.getBoundingClientRect();
-    ui.tag.hidden = hidden || projected.z > 1;
-    ui.tag.style.left = `${((projected.x + 1) / 2) * rect.width}px`;
-    ui.tag.style.top = `${((1 - projected.y) / 2) * rect.height}px`;
-    setText(ui.tag, track.object.name);
+    const k = i * 3;
+    const normalZ = c.u1[k] * c.u2[k + 1] - c.u1[k + 1] * c.u2[k];
+    const inclination = Math.acos(Math.max(-1, Math.min(1, normalZ))) / DEG;
+    const height = ecefToGeodetic(...satelliteEcef(i, t)).height;
+    const periodMin = (2 * Math.PI) / c.rate[i] / 60;
+    setText(ui.pickName, c.names[i]);
+    setText(ui.pickDetail, `NORAD ${c.ids[i]} · ${Math.round(height)} km\n${inclination.toFixed(1)}° incl · ${periodMin.toFixed(1)} min orbit`);
+    if (ui.pickTag) placeTag(ui.pickTag, satellite, c.names[i]);
   };
 
   const draw = (now) => {
-    earthMaterial.uniforms.sun.value.copy(sunDirection(Date.now()));
+    const t = Date.now();
+    earthMaterial.uniforms.sun.value.copy(sunDirection(t));
     if (observer) sceneFromLatLon(observer.lat, observer.lon, 1.0015, dish.position);
     dish.visible = Boolean(observer);
     if (target) {
@@ -732,10 +721,17 @@
       if (Math.abs(target.zoom - view.zoom) < 0.002 && Math.abs(target.lat - view.lat) < 0.05) target = null;
     }
     placeCamera();
-    updateClouds(now);
-    updateServing(now);
+    if (now - lastPositions >= POSITION_UPDATE_MS) {
+      lastPositions = now;
+      updatePositions(t);
+      updateSelection(t);
+    } else if (selectedName && ui.pickTag && constellation && constellation.index.has(selectedName)) {
+      placeTag(ui.pickTag, scenePosition(constellation.index.get(selectedName)), selectedName);
+    }
+    updateServing();
     const ring = updateFootprint();
-    setText(ui.caption, `ALTITUDE ×${ALTITUDE_SCALE} FOR VISIBILITY${ring ? ` · RING = ${ring.floor}° FLOOR AT ${ring.heightKm} KM` : ""}`);
+    const count = constellation ? `${constellation.names.length.toLocaleString("en-US")} SATELLITES · TRUE ALTITUDE` : "LOADING SATELLITES…";
+    setText(ui.caption, `${count}${ring ? ` · RING = ${ring.floor}° FLOOR AT ${ring.heightKm} KM` : ""}`);
     renderer.render(scene, camera);
   };
 
@@ -781,6 +777,8 @@
   if (shared.location) applyLocation(shared.location);
   if (shared.sky) applySnapshot(shared.sky);
   if (shared.serving) applyServing(shared.serving);
+  loadConstellation();
+  setInterval(loadConstellation, CONSTELLATION_REFRESH_MS);
   setInterval(updateClock, 1000);
   resize();
   placeCamera();
