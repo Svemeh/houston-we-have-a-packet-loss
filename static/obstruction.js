@@ -237,8 +237,8 @@
     fillPolygon(outline(0, 0.1, true), "rgba(0, 0, 0, 0.55)");
     drawing.restore();
     const facing = dot3(normal, view.toward) > 0;
-    fillPolygon(outline(facing ? -0.012 : 0.012, 0.1, false), "#7d8792");
-    fillPolygon(outline(0, 0.1, false), facing ? "#f4f6f8" : "#aab2bb");
+    fillPolygon(outline(facing ? -0.012 : 0.012, 0.1, false), "#555e69");
+    fillPolygon(outline(0, 0.1, false), facing ? "#aeb6bf" : "#7b848e");
   };
 
   const requestRender = () => {
