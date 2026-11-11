@@ -33,8 +33,7 @@ type HandoverProber struct {
 }
 
 func NewHandoverProber(target string, logFile *LogFile[HandoverSample]) *HandoverProber {
-	pinger := NewPinger(target, nil, nil)
-	pinger.timeout = HopPingTimeout
+	pinger := NewPinger(target)
 	return &HandoverProber{
 		target: target,
 		ping:   pinger.PingOnce,

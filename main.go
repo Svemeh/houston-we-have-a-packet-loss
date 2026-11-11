@@ -21,9 +21,6 @@ func main() {
 	oneShot := flag.Bool("oneshot", false, "run a one-shot connectivity check and exit")
 	useFake := flag.Bool("fake", false, "generate fake data instead of polling from the antenna")
 	requestTimeout := flag.Duration("timeout", DefaultRequestTimeout, "per-request timeout")
-	pingTarget := flag.String("ping-target", DefaultPingTarget, "host this machine pings")
-	pingLogPath := flag.String("ping-log", DefaultPingLogPath, "ping log file (JSONL)")
-	noPing := flag.Bool("no-ping", false, "don't ping from this machine")
 	hopsLogPath := flag.String("hops-log", DefaultHopsLogPath, "per-hop ping log file (JSONL)")
 	noHops := flag.Bool("no-hops", false, "don't ping the hops along the path")
 	routerAddress := flag.String("router", RouterAuto, "LAN router to ping: an IP, \"auto\" (default gateway) or \"none\"")
@@ -56,7 +53,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "✗ could not reach Starlink dish at %s: %v\n", *dishAddress, err)
 			checkFailed = true
 		}
-		if !*noPing && !runPingCheck(*pingTarget) {
+		if !*noHops && !runPingCheck(HopEndTarget) {
 			checkFailed = true
 		}
 		if checkFailed {
@@ -71,13 +68,6 @@ func main() {
 		os.Exit(1)
 	}
 	defer logFile.Close()
-
-	pingLogFile, err := OpenLogFile[PingSample](*pingLogPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "✗ opening ping log file %q: %v\n", *pingLogPath, err)
-		os.Exit(1)
-	}
-	defer pingLogFile.Close()
 
 	hopsLogFile, err := OpenLogFile[HopSample](*hopsLogPath)
 	if err != nil {
@@ -147,26 +137,16 @@ func main() {
 		log.Printf("loaded %d prior hop samples from %s", len(priorHops), *hopsLogPath)
 	}
 
-	// The ping hub and routes exist even with -no-ping, so the dashboard just
-	// shows old or empty data instead of erroring.
 	pingHub := NewHub[PingSample](int(BackfillWindow / PingInterval))
-	priorPings, err := LoadSamplesSince[PingSample](*pingLogPath, time.Now().Add(-BackfillWindow))
-	if err != nil {
-		log.Printf("warning: could not load prior pings: %v", err)
-	} else if len(priorPings) > 0 {
-		pingHub.SeedHistory(priorPings)
-		log.Printf("loaded %d prior pings from %s", len(priorPings), *pingLogPath)
-	}
+	pingHub.SeedHistory(pingSamplesFrom(priorHops, HopEndTarget))
 
 	ctx, stopSignalWatch := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignalWatch()
 
 	go pollLoop(ctx, collector, hub, logFile, tracker)
-	go pruneLoop(ctx, logFile, pingLogFile, hopsLogFile, outageLogFile, handoverLogFile, servingLogFile)
+	go pruneLoop(ctx, logFile, hopsLogFile, outageLogFile, handoverLogFile, servingLogFile)
 	go tracker.Run(ctx)
-	if !*noPing {
-		go NewPinger(*pingTarget, pingHub, pingLogFile).Run(ctx)
-	}
+	go relayHopTarget(ctx, hopsHub, pingHub, HopEndTarget)
 	if !*noHops {
 		router := resolveRouter(*routerAddress)
 		if router != "" {
@@ -203,7 +183,6 @@ func main() {
 		tracker:          tracker,
 		serving:          servingTracker,
 		telemetryLogPath: *logPath,
-		pingLogPath:      *pingLogPath,
 		hopsLogPath:      *hopsLogPath,
 		rollupLogPath:    *rollupLogPath,
 		outageLogPath:    *outageLogPath,
@@ -313,7 +292,7 @@ func runConnectivityCheck(collector TelemetryCollector, timeout time.Duration) e
 
 // runPingCheck sends a single echo from this machine and prints the result. It reports whether a reply came back.
 func runPingCheck(target string) bool {
-	sample := NewPinger(target, nil, nil).PingOnce(context.Background())
+	sample := NewPinger(target).PingOnce(context.Background())
 	switch {
 	case sample.Error != "":
 		fmt.Fprintf(os.Stderr, "✗ could not ping %s from this machine: %s\n", target, sample.Error)

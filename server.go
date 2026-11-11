@@ -33,7 +33,6 @@ type dashboardSources struct {
 	// Paths rather than sources, because the raw-log routes stream the file
 	// itself rather than parsing it.
 	telemetryLogPath string
-	pingLogPath      string
 	hopsLogPath      string
 	rollupLogPath    string
 	outageLogPath    string
@@ -56,9 +55,8 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 		NewLogFileSource[TelemetrySample](sources.telemetryLogPath), DownsampleWorstCase, MaxHistoryRange, MaxHistoryPoints))
 
 	router.HandleFunc(RoutePingEvents, newSampleStreamHandler(sources.pingHub))
-	router.HandleFunc(RoutePingLog, newRawLogHandler(sources.pingLogPath))
 	router.HandleFunc(RoutePingHistory, newHistoryHandler(
-		NewLogFileSource[PingSample](sources.pingLogPath), DownsamplePing, MaxHistoryRange, MaxHistoryPoints))
+		hopTargetSource{hops: NewLogFileSource[HopSample](sources.hopsLogPath), target: HopEndTarget}, DownsamplePing, MaxHistoryRange, MaxHistoryPoints))
 
 	router.HandleFunc(RouteHopsEvents, newSampleStreamHandler(sources.hopsHub))
 	router.HandleFunc(RouteHopsLog, newRawLogHandler(sources.hopsLogPath))
