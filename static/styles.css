@@ -603,10 +603,6 @@ header {
   background: var(--alarm);
 }
 
-.legend-swatch.is-map-unmapped {
-  background: #59626d;
-}
-
 
 /* Where the dish is aimed, under the scope it describes. Until the dish
    reports a boresight the cone is an assumption, and is-assumed says so. */

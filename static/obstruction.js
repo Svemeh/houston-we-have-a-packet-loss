@@ -35,8 +35,6 @@
     mono: readVariable("--mono", "monospace"),
   };
   const DOT_COLOURS = {
-    outside: theme.labelDim, // below the service floor: the dish never uses it
-    unmapped: "#434b55",
     clear: "#eef2f6",
     obstructed: theme.alarm,
   };
@@ -63,23 +61,20 @@
         x: Math.cos(el) * Math.sin(az),
         y: Math.cos(el) * Math.cos(az),
         z: Math.sin(el),
-        state: "unmapped",
+        state: null,
       });
     }
   }
 
-  // A dot covers the map cells within half a dot spacing: obstructed if any is (so none is skipped),
-  // clear only if most are mapped, so a part-filled map isn't drawn as clear sky.
+  // Only dots backed by map data are drawn. A dot covers the map cells within half a dot spacing:
+  // obstructed if any is (so none is skipped), clear if most are traced, otherwise not drawn.
   const classifyDots = () => {
     const usable = map && map.enabled && map.cells && map.cells.length === map.rows * map.cols;
     for (const dot of dots) {
-      dot.state = "unmapped";
+      dot.state = null;
       if (!usable) continue;
       const zenith = 90 - dot.elevation;
-      if (zenith > map.max_theta_deg) {
-        dot.state = "outside";
-        continue;
-      }
+      if (zenith > map.max_theta_deg) continue;
       const centre = (map.rows - 1) / 2;
       const cellDeg = map.max_theta_deg / centre;
       const radius = zenith / cellDeg;
@@ -101,7 +96,6 @@
       }
       if (seenObstructed) dot.state = "obstructed";
       else if (mapped * 2 >= cells && cells > 0) dot.state = "clear";
-      else if (dot.elevation < map.floor_deg) dot.state = "outside";
     }
   };
 
@@ -185,11 +179,11 @@
     const drawDots = (nearSide) => {
       const paths = new Map();
       for (const dot of dots) {
+        if (!dot.state) continue;
         const at = toScreen([dot.x, dot.y, dot.z]);
         if ((at.depth >= 0) !== nearSide) continue;
         let alpha = nearSide ? 1 - (1 - NEAR_SIDE_ALPHA) * Math.min(1, at.depth * 1.6) : 1;
         if (dot.state === "obstructed") alpha = Math.max(alpha, 0.6);
-        if (dot.state === "outside") alpha *= 0.35;
         const key = `${dot.state}|${Math.round(alpha * 10)}`;
         if (!paths.has(key)) paths.set(key, new Path2D());
         const size = dot.state === "obstructed" ? dotRadius * 1.25 : dotRadius;
