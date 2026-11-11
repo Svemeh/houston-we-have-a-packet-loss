@@ -336,6 +336,9 @@ func mergeWorstCase(worst, candidate TelemetrySample) TelemetrySample {
 		fraction := *candidate.ObstructionFraction
 		worst.ObstructionFraction = &fraction
 	}
+	if candidate.PowerWatts > worst.PowerWatts {
+		worst.PowerWatts = candidate.PowerWatts
+	}
 	worst.Obstructed = worst.Obstructed || candidate.Obstructed
 	worst.DishObstructed = worst.DishObstructed || candidate.DishObstructed
 	worst.ObstructionSource = candidate.ObstructionSource

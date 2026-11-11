@@ -32,7 +32,7 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 
 ## Features
 
-- **Live dashboard** — latency, loss, throughput, link state and alarm strip, streamed over Server-Sent Events. Opens with 45 minutes of backfill; ranges up to 24 h.
+- **Live dashboard** — latency, loss, throughput, antenna power draw, link state and alarm strip, streamed over Server-Sent Events. Opens with 45 minutes of backfill; ranges up to 24 h.
 - **Per-hop pinger** — router (found from the default gateway), dish, Cloudflare and Google pinged in parallel each second, so a loss can be pinned to a segment of the path.
 - **Dish telemetry** — status and outage history from the dish's gRPC API, including fields newer than the published protobufs (decoded by tag from the unknown-field bytes).
 - **Hourly rollup** — loss, RTT p50/p90/p99/max and jitter per target, plus loss bucketed by second within the 15 s satellite slot. Kept forever at ~600 B/hour.
@@ -45,7 +45,7 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 
 ```mermaid
 flowchart LR
-    Dish[Starlink dish<br/>gRPC :9200] -->|GetStatus 1 s<br/>GetHistory 60 s| Collector
+    Dish[Starlink dish<br/>gRPC :9200] -->|GetStatus 1 s<br/>GetHistory 1 s| Collector
     Net[Router · Dish · 1.1.1.1 · 8.8.8.8] -->|ICMP 1 s| Pingers
     Celestrak -->|SpaceX orbit elements, refreshed every 2 h| Sky[Sky tracker<br/>SGP4]
 

@@ -204,6 +204,7 @@ type TelemetrySample struct {
 	BoresightAzimuthDeg   float64 `json:"boresight_az_deg"`
 	BoresightElevationDeg float64 `json:"boresight_el_deg"`
 	BoresightValid        bool    `json:"boresight_valid"`
+	PowerWatts            float64 `json:"power_w,omitempty"` // 0 when the dish doesn't report it
 	UptimeSeconds         uint64  `json:"uptime_seconds"`
 	HardwareVersion       string  `json:"hardware_version"`
 	SoftwareVersion       string  `json:"software_version"`

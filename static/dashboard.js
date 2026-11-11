@@ -431,6 +431,7 @@
   const formatMs = value => `${Math.round(value)} ms`;
   const formatPercent = value => `${value.toFixed(2)} %`;
   const formatMbps = value => `${value.toFixed(1)} Mbps`;
+  const formatWatts = value => `${Math.round(value)} W`;
 
   const latencyScope = createScope({
     canvasId: "chart-latency",
@@ -470,6 +471,15 @@
     colorVar: "--chart-upload",
     formatValue: formatMbps,
   });
+  const powerScope = createScope({
+    canvasId: "chart-power",
+    rangeLabelId: "chart-range-power",
+    unit: "W",
+    minAxisTop: 50,
+    axisRounding: 10,
+    colorVar: "--chart-power",
+    formatValue: formatWatts,
+  });
   const machineToInternetPingScope = createScope({
     canvasId: "chart-machine-to-internet-ping",
     rangeLabelId: "chart-range-machine-to-internet-ping",
@@ -490,7 +500,7 @@
     colorVar: "--chart-machine-to-internet-loss",
     formatValue: formatPercent,
   });
-  const dishScopes = [latencyScope, packetLossScope, downloadScope, uploadScope];
+  const dishScopes = [latencyScope, packetLossScope, downloadScope, uploadScope, powerScope];
   const machineToInternetScopes = [machineToInternetPingScope, machineToInternetLossScope];
   const scopes = [...dishScopes, ...machineToInternetScopes];
 
@@ -519,6 +529,7 @@
     setText("value-upload", isOffline ? "—" : formatNumber(sample.upload_mbps, 1));
     const dropPercent = (sample.drop_rate_fraction || 0) * 100;
     setText("value-packet-loss", isOffline ? "—" : formatNumber(dropPercent, 1));
+    setText("value-power", isOffline || !sample.power_w ? "—" : formatNumber(sample.power_w, 0));
 
     setClassName("cell-latency",
       "cell" +
@@ -561,6 +572,7 @@
     downloadScope[addMethod](timestamp, sample.download_mbps || 0);
     uploadScope[addMethod](timestamp, sample.upload_mbps || 0);
     if (sample.latency_ms > 0) latencyScope[addMethod](timestamp, sample.latency_ms);
+    if (sample.power_w > 0) powerScope[addMethod](timestamp, sample.power_w);
   }
 
   function applyLiveSample(sample) {
