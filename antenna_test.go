@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"math"
 	"testing"
+	"time"
 
+	device "github.com/starlink-community/starlink-grpc-go/pkg/spacex.com/api/device"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
@@ -36,5 +39,19 @@ func TestReadFloatsPackedAndUnpacked(t *testing.T) {
 func TestReadFloatsMissingField(t *testing.T) {
 	if got := readFloats(nil, fieldHistoryPowerIn); len(got) != 0 {
 		t.Fatalf("got %v, want none", got)
+	}
+}
+
+func TestCollectOutagesReusesRecentHistory(t *testing.T) {
+	history := &device.DishGetHistoryResponse{}
+	history.ProtoReflect().SetUnknown(protowire.AppendBytes(
+		protowire.AppendTag(nil, fieldHistoryOutages, protowire.BytesType),
+		encodeOutage(4, time.Now().Add(-time.Minute).UnixNano(), uint64(2*time.Second), false)))
+
+	// No deviceClient: a GetHistory call here would panic.
+	collector := &StarlinkCollector{latestHistory: history, latestHistoryAt: time.Now()}
+	outages, err := collector.CollectOutages(context.Background())
+	if err != nil || len(outages) != 1 {
+		t.Fatalf("got %v, %v; want one outage from the cached history", outages, err)
 	}
 }

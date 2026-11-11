@@ -8,6 +8,10 @@ const (
 	DefaultDishAddress    = "192.168.100.1:9200"
 	DefaultRequestTimeout = 5 * time.Second
 
+	// HistoryRequestTimeout caps the per-second GetHistory call, so a slow one
+	// costs that second's power reading instead of delaying the next poll.
+	HistoryRequestTimeout = 800 * time.Millisecond
+
 	// Polling: how often we ask the dish for a fresh status snapshot.
 	DefaultPollInterval = 1 * time.Second
 
@@ -123,6 +127,10 @@ const (
 	// Dish outages: the dish's own outage list from get_history.
 	DefaultOutageLogPath = DataDir + "/dishOutages.jsonl"
 	OutagePollInterval   = 60 * time.Second
+
+	// HistoryReuseAge: the outage poller reuses the per-second poll's history
+	// if it is at most this old, and fetches its own otherwise.
+	HistoryReuseAge = 5 * time.Second
 
 	// Handover burst around every handover: unix_seconds % 15 == 12 (:12/:27/:42/:57 UTC).
 	HandoverBoundaryOffset   = 12
