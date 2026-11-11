@@ -144,10 +144,9 @@ ICMP needs permission on Linux: `sudo sysctl -w net.ipv4.ping_group_range="0 214
 | `-web` | `:2101` | Dashboard listen address |
 | `-fake` | off | Synthetic telemetry |
 | `-router` | `auto` | LAN router for the hop pinger: `auto` (default gateway), an IP, or `none` |
-| `-ping-target` | `1.1.1.1` | Host this machine pings |
-| `-no-ping` / `-no-hops` | off | Disable the pingers (`-no-hops` also disables the rollup) |
+| `-no-hops` | off | Disable the pingers and the rollup |
 | `-track-satellite` | on | Identify the serving satellite every 15 s (clears the dish's obstruction map each slot); `-track-satellite=false` turns it off |
-| `-log`, `-ping-log`, `-hops-log`, `-outage-log`, `-rollup-log`, `-handover-log`, `-serving-log` | `data/*.jsonl` | Log locations |
+| `-log`, `-hops-log`, `-outage-log`, `-rollup-log`, `-handover-log`, `-serving-log` | `data/*.jsonl` | Log locations |
 | `-obstruction-map` | `data/obstructionMap.json` | Houston's own obstruction map, kept while `-track-satellite` runs |
 | `-version` | | Print the version and exit |
 
@@ -160,7 +159,7 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `/` | Dashboard |
 | `/events` · `/pingevents` · `/skyevents` | SSE streams |
 | `/history?range=1h` · `/pinghistory?range=1h` | Downsampled history (`range` = Go duration or `all`) |
-| `/log` · `/pinglog` | Raw JSONL |
+| `/log` · `/hopslog` | Raw JSONL |
 | `/location` | Observer location: `GET`, or `POST` JSON `{"latitude_deg":…,"longitude_deg":…}` |
 | `/serving` · `/obstructionmap` | Latest serving-satellite slot · Houston's own obstruction map (`enabled:false` without `-track-satellite`) |
 
@@ -172,7 +171,7 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `const.go` | Tunables and the telemetry sample format |
 | `antenna.go` · `fakeAntenna.go` | Dish gRPC collector · synthetic collector |
 | `outages.go` | Dish outage history, protobuf decoding, GPS time |
-| `ping.go` · `hops.go` | Single-target and per-hop ICMP pingers |
+| `ping.go` · `hops.go` | ICMP echo and the per-hop pinger (1.1.1.1 feeds the To Internet charts) |
 | `gateway*.go` | Finds the LAN router from the default gateway |
 | `rollup.go` | Hourly summary with handover-slot bucketing |
 | `serving.go` | Serving satellite: obstruction-map reset, arc matching, `serving.jsonl` |
