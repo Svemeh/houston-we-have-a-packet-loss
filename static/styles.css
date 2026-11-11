@@ -564,6 +564,10 @@ header {
   color: var(--alarm);
 }
 
+.los-state.is-building {
+  color: var(--label);
+}
+
 .obstruction-percent {
   margin: 2px 0 4px;
   text-align: center;

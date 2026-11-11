@@ -535,13 +535,13 @@
           ? " is-caution"
           : ""));
 
-    setText("line-of-sight-state", isOffline
-      ? "—"
-      : sample.obstructed
-        ? "OBSTRUCTED"
-        : "CLEAR");
-    setClassName("line-of-sight",
-      "los-state " + (isOffline ? "" : sample.obstructed ? "is-alarm" : "is-nominal"));
+    const buildingMap = sample.obstruction_source === "map" && sample.obstruction_fraction == null;
+    const lineOfSight = isOffline ? ["—", ""]
+      : sample.obstructed ? ["OBSTRUCTED", "is-alarm"]
+        : buildingMap ? ["BUILDING MAP", "is-building"]
+          : ["CLEAR", "is-nominal"];
+    setText("line-of-sight-state", lineOfSight[0]);
+    setClassName("line-of-sight", "los-state " + lineOfSight[1]);
     setText("line-of-sight-percent", isOffline ? "" : describeObstruction(sample));
 
     if (sample.hardware_version) setText("hardware-version", sample.hardware_version);
