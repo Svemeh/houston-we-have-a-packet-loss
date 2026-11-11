@@ -177,10 +177,16 @@
     setText(ui.lastText, same ? `kept ${latest.best.satellite}` : `${slotName(previous)} → ${slotName(latest)}`);
   };
 
+  // The bar runs as one looping animation; each tick only nudges it back onto the wall clock.
+  let slotBar = null;
   const updateClock = () => {
     const into = ((Date.now() / 1000 - SLOT_BOUNDARY_OFFSET) % SLOT_SECONDS + SLOT_SECONDS) % SLOT_SECONDS;
     setText(ui.next, `${Math.ceil(SLOT_SECONDS - into)} s`);
-    if (ui.bar) ui.bar.style.width = `${((into / SLOT_SECONDS) * 100).toFixed(1)}%`;
+    if (!ui.bar || !ui.bar.animate) return;
+    if (!slotBar) {
+      slotBar = ui.bar.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], { duration: SLOT_SECONDS * 1000, iterations: Infinity });
+    }
+    slotBar.currentTime = into * 1000;
   };
 
   function updateReadout() {
