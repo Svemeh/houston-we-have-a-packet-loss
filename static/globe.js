@@ -177,6 +177,12 @@
     setText(ui.lastText, same ? `kept ${latest.best.satellite}` : `${slotName(previous)} → ${slotName(latest)}`);
   };
 
+  // Ticks just after each wall-clock second, when the countdown text changes (handovers fall on whole seconds).
+  const startClock = () => {
+    updateClock();
+    setTimeout(startClock, 1005 - (Date.now() % 1000));
+  };
+
   // The bar runs as one looping animation; each tick only nudges it back onto the wall clock.
   let slotBar = null;
   const updateClock = () => {
@@ -273,7 +279,7 @@
     if (shared.location) applyLocation(shared.location);
     if (shared.sky) applySnapshot(shared.sky);
     if (shared.serving) applyServing(shared.serving);
-    setInterval(updateClock, 1000);
+    startClock();
     return;
   }
 
@@ -785,7 +791,7 @@
   if (shared.serving) applyServing(shared.serving);
   loadConstellation();
   setInterval(loadConstellation, CONSTELLATION_REFRESH_MS);
-  setInterval(updateClock, 1000);
+  startClock();
   resize();
   placeCamera();
   updateReadout();
