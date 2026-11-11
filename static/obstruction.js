@@ -35,6 +35,7 @@
     mono: readVariable("--mono", "monospace"),
   };
   const DOT_COLOURS = {
+    unmapped: "#434b55",
     clear: "#eef2f6",
     obstructed: theme.alarm,
   };
@@ -66,13 +67,17 @@
     }
   }
 
-  // Only dots backed by map data are drawn. A dot covers the map cells within half a dot spacing:
-  // obstructed if any is (so none is skipped), clear if most are traced, otherwise not drawn.
+  // Only dots the dish can map are drawn: above the service floor, or already traced. A dot covers the map
+  // cells within half a dot spacing: obstructed if any is (so none is skipped), clear if most are traced.
   const classifyDots = () => {
-    const usable = map && map.enabled && map.cells && map.cells.length === map.rows * map.cols;
+    const enabled = Boolean(map && map.enabled);
+    const usable = enabled && map.cells && map.rows > 0 && map.cells.length === map.rows * map.cols;
     for (const dot of dots) {
       dot.state = null;
-      if (!usable) continue;
+      if (!usable) {
+        if (enabled && dot.elevation >= map.floor_deg) dot.state = "unmapped";
+        continue;
+      }
       const zenith = 90 - dot.elevation;
       if (zenith > map.max_theta_deg) continue;
       const centre = (map.rows - 1) / 2;
@@ -96,6 +101,7 @@
       }
       if (seenObstructed) dot.state = "obstructed";
       else if (mapped * 2 >= cells && cells > 0) dot.state = "clear";
+      else if (dot.elevation >= map.floor_deg) dot.state = "unmapped";
     }
   };
 
