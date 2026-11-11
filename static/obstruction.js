@@ -280,7 +280,7 @@
   });
   canvas.addEventListener("pointermove", (event) => {
     if (!dragFrom) return;
-    yawDeg = (yawDeg - (event.clientX - dragFrom.x) * 0.5 + 360) % 360;
+    yawDeg = (yawDeg + (event.clientX - dragFrom.x) * 0.5 + 360) % 360;
     tiltDeg = Math.min(MAX_TILT_DEG, Math.max(MIN_TILT_DEG, tiltDeg + (event.clientY - dragFrom.y) * 0.3));
     dragFrom = { x: event.clientX, y: event.clientY };
     userTurned = true;
