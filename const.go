@@ -92,6 +92,7 @@ const (
 	RouteServing   = "/serving"
 
 	RouteObstructionMap = "/obstructionmap"
+	RouteConstellation  = "/constellation"
 
 	// Settings made from the dashboard, such as the location.
 	DefaultSettingsPath = DataDir + "/settings.json"

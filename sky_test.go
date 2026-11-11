@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	satellite "github.com/joshuaferrara/go-satellite"
 )
@@ -116,5 +117,41 @@ func TestLookFromUsesTheEllipsoid(t *testing.T) {
 	}), observer, julianDay)
 	if math.Abs(azimuth) > 1e-6 && math.Abs(azimuth-360) > 1e-6 || math.Abs(elevation-45) > 1e-6 {
 		t.Errorf("north at 45°: az %.6f, el %.6f", azimuth, elevation)
+	}
+}
+
+func TestConstellationPropagatesEveryTrackedSatellite(t *testing.T) {
+	tracked, _, err := parseElementStream(strings.NewReader(referenceOMM), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sky := NewSkyTracker(Observer{}, "")
+	sky.storeElements(tracked, len(tracked), time.Now())
+
+	constellation := sky.Constellation(time.Date(2026, 10, 24, 6, 0, 0, 700e6, time.UTC))
+	if !constellation.Timestamp.Equal(time.Date(2026, 10, 24, 6, 0, 0, 0, time.UTC)) {
+		t.Errorf("timestamp %v, want whole seconds", constellation.Timestamp)
+	}
+	if want := satellite.ThetaG_JD(satellite.JDay(2026, 10, 24, 6, 0, 0)); constellation.ThetaGRad != want {
+		t.Errorf("theta %v, want %v", constellation.ThetaGRad, want)
+	}
+	if len(constellation.Satellites) != len(tracked) {
+		t.Fatalf("%d satellites, want %d", len(constellation.Satellites), len(tracked))
+	}
+	for i, row := range constellation.Satellites {
+		position, velocity := satellite.Propagate(tracked[i].propagator, 2026, 10, 24, 6, 0, 0)
+		if row[0] != tracked[i].name || row[1] != tracked[i].noradID {
+			t.Errorf("row %d names %v %v", i, row[0], row[1])
+		}
+		for j, want := range []float64{position.X, position.Y, position.Z} {
+			if math.Abs(row[2+j].(float64)-want) > 0.05 {
+				t.Errorf("row %d position[%d] = %v, want %v", i, j, row[2+j], want)
+			}
+		}
+		for j, want := range []float64{velocity.X, velocity.Y, velocity.Z} {
+			if math.Abs(row[5+j].(float64)-want) > 0.00005 {
+				t.Errorf("row %d velocity[%d] = %v, want %v", i, j, row[5+j], want)
+			}
+		}
 	}
 }
