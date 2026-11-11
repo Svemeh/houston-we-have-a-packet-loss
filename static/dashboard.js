@@ -505,14 +505,10 @@
   const DROP_HOT_PERCENT = 5;
   const DROP_WARM_PERCENT = 0.5;
 
-  // Houston's own map while -track-satellite clears the dish's; its fill level until it covers enough sky.
+  // Houston's own map while -track-satellite clears the dish's; it has no % until enough sky is mapped.
   function describeObstruction(sample) {
-    if (sample.obstruction_fraction == null) {
-      return sample.obstruction_source === "map"
-        ? `map ${Math.floor((sample.map_coverage || 0) * 100)}% filled`
-        : "";
-    }
-    return formatNumber(sample.obstruction_fraction * 100, 2) + "% obstruction";
+    if (sample.obstruction_fraction == null) return sample.obstruction_source === "map" ? "—% obstructed" : "";
+    return formatNumber(sample.obstruction_fraction * 100, 2) + "% obstructed";
   }
 
   function updateReadouts(sample) {
@@ -545,7 +541,7 @@
         ? "OBSTRUCTED"
         : "CLEAR");
     setClassName("line-of-sight",
-      "status-value is-row " + (isOffline ? "" : sample.obstructed ? "is-alarm" : "is-nominal"));
+      "los-state " + (isOffline ? "" : sample.obstructed ? "is-alarm" : "is-nominal"));
     setText("line-of-sight-percent", isOffline ? "" : describeObstruction(sample));
 
     if (sample.hardware_version) setText("hardware-version", sample.hardware_version);

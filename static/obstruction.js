@@ -19,8 +19,7 @@
   const canvas = document.getElementById("obstruction-dome");
   if (!canvas) return;
   const drawing = canvas.getContext("2d");
-  const card = document.getElementById("obstruction-card");
-  const summary = document.getElementById("obstruction-summary");
+  const mapView = document.getElementById("obstruction-map-view");
 
   const readVariable = (name, fallback) =>
     getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -248,23 +247,13 @@
     requestAnimationFrame(render);
   };
 
-  const updateSummary = () => {
-    const enabled = Boolean(map && map.enabled);
-    if (card) card.hidden = !enabled;
-    if (!enabled || !summary) return;
-    const filled = `map ${Math.floor(map.coverage * 100)}% filled`;
-    summary.textContent = map.obstruction_fraction == null
-      ? `${filled} · % shown from ${Math.round(map.min_coverage * 100)}%`
-      : `${(map.obstruction_fraction * 100).toFixed(2)}% obstructed · ${filled}`;
-  };
-
   const loadMap = async () => {
     try {
       const response = await fetch(OBSTRUCTION_MAP_URL, { cache: "no-store" });
       if (!response.ok) return;
-      const wasHidden = !card || card.hidden;
+      const wasHidden = !mapView || mapView.hidden;
       map = await response.json();
-      updateSummary();
+      if (mapView) mapView.hidden = !map.enabled;
       classifyDots();
       if (wasHidden && map.enabled) resizeCanvas();
       requestRender();
