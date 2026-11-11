@@ -67,17 +67,13 @@
     }
   }
 
-  // Only dots the dish can map are drawn: above the service floor, or already traced. A dot covers the map
-  // cells within half a dot spacing: obstructed if any is (so none is skipped), clear if most are traced.
+  // Every dot is drawn and stays grey until checked. A dot covers the map cells within half a dot spacing:
+  // obstructed if any is (so none is skipped), clear if most are traced.
   const classifyDots = () => {
-    const enabled = Boolean(map && map.enabled);
-    const usable = enabled && map.cells && map.rows > 0 && map.cells.length === map.rows * map.cols;
+    const usable = Boolean(map && map.enabled && map.cells && map.rows > 0 && map.cells.length === map.rows * map.cols);
     for (const dot of dots) {
-      dot.state = null;
-      if (!usable) {
-        if (enabled && dot.elevation >= map.floor_deg) dot.state = "unmapped";
-        continue;
-      }
+      dot.state = "unmapped";
+      if (!usable) continue;
       const zenith = 90 - dot.elevation;
       if (zenith > map.max_theta_deg) continue;
       const centre = (map.rows - 1) / 2;
@@ -101,7 +97,6 @@
       }
       if (seenObstructed) dot.state = "obstructed";
       else if (mapped * 2 >= cells && cells > 0) dot.state = "clear";
-      else if (dot.elevation >= map.floor_deg) dot.state = "unmapped";
     }
   };
 
