@@ -213,6 +213,6 @@ A `v*` tag runs the same CI checks before [`release.yml`](.github/workflows/rele
 
 - The hourly rollup is written to disk but not yet shown on the dashboard.
 - The dish's own drop counter reports ~3 s late relative to the pings.
-- Satellite tracking clears the dish's obstruction map every 15 s, so the Starlink app shows little or no obstruction while Houston runs. Run with `-track-satellite=false` to keep the app's map. Houston keeps its own map from the cells the dish traces each slot and uses that instead. Its obstruction % appears once 80 % of the sky above the service floor has been checked; until then the dashboard shows "BUILDING MAP". The resets don't affect how the dish works.
+- Satellite tracking clears the dish's obstruction map every 15 s, so the Starlink app shows little or no obstruction while Houston runs. Run with `-track-satellite=false` to keep the app's map. Houston keeps its own map from the cells the dish traces each slot and uses that instead. Its obstruction % appears once 60 % of the sky above the service floor has been checked; until then the dashboard shows "BUILDING MAP". The resets don't affect how the dish works.
 - Houston's obstruction map doesn't know when the dish is moved to a new spot. Delete `data/obstructionMap.json` and restart after moving it.
 
