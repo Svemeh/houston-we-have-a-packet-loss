@@ -150,7 +150,7 @@ const (
 	DefaultObstructionMapPath  = DataDir + "/obstructionMap.json"
 	ObstructedSNRBelow         = 0.5             // a traced cell below this SNR counts as blocked (dish: 1 clear, 0 blocked, -1 unknown)
 	ObstructionCellMaxCount    = 20              // per-cell slot count is halved past this, so recent slots outweigh old ones
-	ObstructionMapMinCoverage  = 0.8             // share of the sky above the service floor traced before an obstruction % is shown
+	ObstructionMapMinCoverage  = 0.6             // share of the sky above the service floor traced before an obstruction % is shown
 	ObstructionLiveMaxAge      = 3 * time.Second // "obstructed now" from the arc being traced is trusted this long
 	ObstructionMapSaveInterval = 5 * time.Minute
 
