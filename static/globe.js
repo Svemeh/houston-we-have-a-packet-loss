@@ -13,6 +13,9 @@
   const PICK_RADIUS_PX = 12; // how close a click has to land to a satellite
   const ORBIT_POINTS = 256;
   const GLOBE_FIT_RADIUS = 1.1; // Earth plus its glow, with a little margin, fits the panel
+  const SATELLITE_DOT_PX = 3.5;
+  const MARKER_PX = 18; // the ringed dot on the serving and the picked satellite
+  const COLOURS = { satellite: "#19e6ff", serving: "#f5b740", selected: "#ffffff", dish: "#ffffff" };
   const DEG = Math.PI / 180;
 
   const stage = document.getElementById("globe-stage");
@@ -112,7 +115,7 @@
     transparent: true,
     depthWrite: false,
     vertexShader: "varying vec3 vN; void main(){ vN=normalize(normalMatrix*normal); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
-    fragmentShader: "varying vec3 vN; void main(){ float i=pow(max(0.0,0.66+dot(vN,vec3(0.0,0.0,1.0))),5.0); gl_FragColor=vec4(0.32,0.58,1.0,1.0)*i*1.4; }",
+    fragmentShader: "varying vec3 vN; void main(){ float i=pow(max(0.0,0.66+dot(vN,vec3(0.0,0.0,1.0))),5.0); gl_FragColor=vec4(0.32,0.58,1.0,1.0)*i*0.55; }",
   })));
 
   const coastAndBorders = (world) => {
@@ -146,27 +149,33 @@
 
   // ---- Satellites -------------------------------------------------------------
 
-  const glowTexture = (colour) => {
+  // A crisp dot; with ring it becomes the marker for the serving or the picked satellite.
+  const dotTexture = (colour, ring = false) => {
     const dot = document.createElement("canvas");
     dot.width = dot.height = 64;
     const ctx = dot.getContext("2d");
-    const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    gradient.addColorStop(0, "#ffffff");
-    gradient.addColorStop(0.25, colour);
-    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillStyle = ctx.strokeStyle = colour;
+    ctx.beginPath();
+    ctx.arc(32, 32, ring ? 11 : 24, 0, 2 * Math.PI);
+    ctx.fill();
+    if (ring) {
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(32, 32, 27, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
     return new THREE.CanvasTexture(dot);
   };
-  const makeCloud = (colour, size) => {
-    const points = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({
-      map: glowTexture(colour), size, sizeAttenuation: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    }));
+  const makePoints = (texture, size) => {
+    const points = new THREE.Points(
+      new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(3), 3)),
+      new THREE.PointsMaterial({ map: texture, size, sizeAttenuation: false, transparent: true, depthWrite: false }),
+    );
     points.frustumCulled = false;
     scene.add(points);
     return points;
   };
-  const allCloud = makeCloud("#19e6ff", 5);
+  const allCloud = makePoints(dotTexture(COLOURS.satellite), SATELLITE_DOT_PX);
 
   // Each satellite as a circle in its orbital plane, re-anchored to SGP4 every refresh.
   let constellation = null;
@@ -243,31 +252,16 @@
   const scenePosition = (i, out = new THREE.Vector3()) =>
     out.set(constellation.scene[i * 3], constellation.scene[i * 3 + 1], constellation.scene[i * 3 + 2]);
 
-  const dish = new THREE.Points(
-    new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(3), 3)),
-    new THREE.PointsMaterial({ map: glowTexture("#ffffff"), size: 14, sizeAttenuation: false, transparent: true, depthWrite: false }),
-  );
-  scene.add(dish);
+  const dish = makePoints(dotTexture(COLOURS.dish), 8);
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0022, 1, 8, 1, true), new THREE.MeshBasicMaterial({ color: amber }));
+  const servingMark = makePoints(dotTexture(COLOURS.serving, true), MARKER_PX);
+  const servingParts = [beam, servingMark];
+  scene.add(beam);
 
-  const beamCore = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 1, 12, 1, true),
-    new THREE.MeshBasicMaterial({ color: amber, transparent: true, opacity: 0.95, depthWrite: false }));
-  const beamGlow = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 1, 16, 1, true),
-    new THREE.MeshBasicMaterial({ color: amber, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false }));
-  const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.006, 12, 8), new THREE.MeshBasicMaterial({ color: 0xfff1cc }));
-  const servingMark = new THREE.Points(
-    new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(3), 3)),
-    new THREE.PointsMaterial({ map: glowTexture("#f5b740"), size: 22, sizeAttenuation: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
-  );
-  const servingParts = [beamCore, beamGlow, pulse, servingMark];
-  for (const part of servingParts) scene.add(part);
-
-  const selectedMark = new THREE.Points(
-    new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(3), 3)),
-    new THREE.PointsMaterial({ map: glowTexture("#ffffff"), size: 18, sizeAttenuation: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
-  );
-  const orbit = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xe6fdff, transparent: true, opacity: 1 }));
+  const selectedMark = makePoints(dotTexture(COLOURS.selected, true), MARKER_PX);
+  const orbit = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: COLOURS.selected }));
   orbit.frustumCulled = false;
-  scene.add(selectedMark, orbit);
+  scene.add(orbit);
 
   // ---- Camera and input -----------------------------------------------------
 
@@ -386,6 +380,11 @@
   }, { passive: false });
 
   if (ui.centre) ui.centre.addEventListener("click", () => centreOnDish(true));
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !selectedName) return;
+    selectedName = "";
+    markDirty();
+  });
   if (ui.pickClose) {
     ui.pickClose.addEventListener("click", () => {
       selectedName = "";
@@ -411,12 +410,9 @@
     direction.subVectors(satellite, dish.position);
     const length = direction.length();
     direction.normalize();
-    for (const beam of [beamCore, beamGlow]) {
-      beam.position.copy(dish.position).addScaledVector(direction, length / 2);
-      beam.quaternion.setFromUnitVectors(up, direction);
-      beam.scale.set(1, length, 1);
-    }
-    pulse.position.copy(dish.position).addScaledVector(direction, length * (reduceMotion ? 0.5 : (Date.now() % 1100) / 1100));
+    beam.position.copy(dish.position).addScaledVector(direction, length / 2);
+    beam.quaternion.setFromUnitVectors(up, direction);
+    beam.scale.set(1, length, 1);
     placeTag(ui.tag, satellite, object.name);
   };
 

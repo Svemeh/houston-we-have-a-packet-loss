@@ -756,7 +756,7 @@ header {
 }
 
 .stage-tag.is-pick {
-  color: #bff8ff;
+  color: #ffffff;
 }
 
 /* A link that looks like a button: dashboard to the sky page and back. */
@@ -801,7 +801,7 @@ header {
 
 .globe-pick-name {
   font-size: 12px;
-  color: #bff8ff;
+  color: var(--text);
 }
 
 .globe-pick-detail {
@@ -927,7 +927,12 @@ header {
   border-top: 1px solid var(--edge);
 }
 
+.readout-slot .readout-row {
+  flex-wrap: wrap;
+}
+
 .readout-small {
+  white-space: nowrap;
   font-size: 11px;
   letter-spacing: 0.08em;
   color: var(--label);
