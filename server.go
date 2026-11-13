@@ -28,7 +28,8 @@ type dashboardSources struct {
 	pingHub      *Hub[PingSample]
 	hopsHub      *Hub[HopSample]
 	tracker      *SkyTracker
-	serving      *ServingTracker // nil when tracking is off
+	serving      *ServingTracker    // nil when tracking is off
+	obstruction  *ObstructionMapper // nil when tracking is off
 
 	// Paths rather than sources, because the raw-log routes stream the file
 	// itself rather than parsing it.
@@ -73,6 +74,7 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 	router.HandleFunc(RouteSkyEvents, newSkyStreamHandler(sources.tracker))
 	router.HandleFunc(RouteLocation, newLocationHandler(sources.tracker, sources.settingsPath))
 	router.HandleFunc(RouteServing, newServingHandler(sources.serving))
+	router.HandleFunc(RouteObstructionMap, newObstructionMapHandler(sources.obstruction))
 
 	server := &http.Server{Addr: listenAddress, Handler: router}
 
@@ -452,6 +454,19 @@ func newServingHandler(serving *ServingTracker) http.HandlerFunc {
 			if slot, ok := serving.Latest(); ok {
 				payload.Slot = &slot
 			}
+		}
+		response.Header().Set("Content-Type", "application/json")
+		response.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(response).Encode(payload)
+	}
+}
+
+// newObstructionMapHandler serves RouteObstructionMap: Houston's own obstruction map, or enabled:false when tracking is off.
+func newObstructionMapHandler(obstruction *ObstructionMapper) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		payload := ObstructionMapView{}
+		if obstruction != nil {
+			payload = obstruction.View(time.Now())
 		}
 		response.Header().Set("Content-Type", "application/json")
 		response.Header().Set("Cache-Control", "no-store")

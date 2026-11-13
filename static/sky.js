@@ -290,6 +290,7 @@
     // Set from another tab, or cleared by a restart: ask the server again.
     if (latestSnapshot && latestSnapshot.location_set !== snapshot.location_set) loadLocation();
     latestSnapshot = snapshot;
+    window.dispatchEvent(new CustomEvent("houston:sky", { detail: snapshot }));
 
     const aboveHorizon = (snapshot.objects || []).length;
     setText(elements.inCone, snapshot.in_cone_count);

@@ -87,6 +87,8 @@ const (
 	RouteLocation  = "/location"
 	RouteServing   = "/serving"
 
+	RouteObstructionMap = "/obstructionmap"
+
 	// Settings made from the dashboard, such as the location.
 	DefaultSettingsPath = DataDir + "/settings.json"
 
@@ -132,7 +134,7 @@ const (
 	DefaultHandoverLogPath   = DataDir + "/handovers.jsonl"
 
 	// Serving satellite (-track-satellite): clear the obstruction map each slot, match the traced arc to a track.
-	DefaultTrackSatellite           = false
+	DefaultTrackSatellite           = true
 	ServingClearDelay               = 300 * time.Millisecond // after the slot boundary
 	ServingReadInterval             = 1 * time.Second
 	ServingReadsPerSlot             = 14
@@ -143,6 +145,14 @@ const (
 	ServingMaxTimeOffsetS           = 3
 	ServingCandidateMinElevationDeg = 5.0
 	DefaultServingLogPath           = DataDir + "/serving.jsonl"
+
+	// Own obstruction map (-track-satellite): every slot's traced cells merged, since the dish's own map is cleared each slot.
+	DefaultObstructionMapPath  = DataDir + "/obstructionMap.json"
+	ObstructedSNRBelow         = 0.5             // a traced cell below this SNR counts as blocked (dish: 1 clear, 0 blocked, -1 unknown)
+	ObstructionCellMaxCount    = 20              // per-cell slot count is halved past this, so recent slots outweigh old ones
+	ObstructionMapMinCoverage  = 0.6             // share of the sky above the service floor traced before an obstruction % is shown
+	ObstructionLiveMaxAge      = 3 * time.Second // "obstructed now" from the arc being traced is trusted this long
+	ObstructionMapSaveInterval = 5 * time.Minute
 
 	// SchedulerResyncAfter: a wake this far off plan restarts the 1/s schedule.
 	SchedulerResyncAfter = 3 * time.Second
@@ -179,20 +189,24 @@ const HopEndTarget = "1.1.1.1"
 // TelemetrySample is one poll of the dish: the values it reported, or the
 // error that stopped us from reading them.
 type TelemetrySample struct {
-	Timestamp             time.Time `json:"timestamp"`
-	LinkState             string    `json:"link_state"`
-	LatencyMs             float64   `json:"latency_ms"`
-	DownloadMbps          float64   `json:"download_mbps"`
-	UploadMbps            float64   `json:"upload_mbps"`
-	DropRateFraction      float64   `json:"drop_rate_fraction"` // fraction in [0,1]
-	Obstructed            bool      `json:"obstructed"`
-	ObstructionFraction   float64   `json:"obstruction_fraction"`
-	BoresightAzimuthDeg   float64   `json:"boresight_az_deg"`
-	BoresightElevationDeg float64   `json:"boresight_el_deg"`
-	BoresightValid        bool      `json:"boresight_valid"`
-	UptimeSeconds         uint64    `json:"uptime_seconds"`
-	HardwareVersion       string    `json:"hardware_version"`
-	SoftwareVersion       string    `json:"software_version"`
+	Timestamp           time.Time `json:"timestamp"`
+	LinkState           string    `json:"link_state"`
+	LatencyMs           float64   `json:"latency_ms"`
+	DownloadMbps        float64   `json:"download_mbps"`
+	UploadMbps          float64   `json:"upload_mbps"`
+	DropRateFraction    float64   `json:"drop_rate_fraction"` // fraction in [0,1]
+	Obstructed          bool      `json:"obstructed"`
+	ObstructionFraction *float64  `json:"obstruction_fraction"` // nil when unknown
+	// Set while Houston's own obstruction map replaces the dish's readings (-track-satellite).
+	ObstructionSource     string  `json:"obstruction_source,omitempty"`
+	MapCoverage           float64 `json:"map_coverage,omitempty"`
+	DishObstructed        bool    `json:"dish_obstructed,omitempty"`
+	BoresightAzimuthDeg   float64 `json:"boresight_az_deg"`
+	BoresightElevationDeg float64 `json:"boresight_el_deg"`
+	BoresightValid        bool    `json:"boresight_valid"`
+	UptimeSeconds         uint64  `json:"uptime_seconds"`
+	HardwareVersion       string  `json:"hardware_version"`
+	SoftwareVersion       string  `json:"software_version"`
 	// PollError is set when a poll failed, and empty otherwise.
 	PollError string `json:"poll_error,omitempty"`
 }

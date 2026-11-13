@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/styles.css">
   <script src="/dashboard.js" defer></script>
   <script src="/sky.js" defer></script>
+  <script src="/obstruction.js" defer></script>
 </head>
 
 <body>
@@ -157,6 +158,24 @@
           <div class="sky-note" id="cone-note">—</div>
         </div>
 
+        <div class="scope is-obstruction">
+          <div class="scope-head">
+            <span class="label">Obstruction Map</span>
+            <span class="los-state" id="line-of-sight"><span class="los-dot"></span><span id="line-of-sight-state">—</span></span>
+          </div>
+          <div id="obstruction-map-view" hidden>
+            <div class="dome-frame">
+              <canvas id="obstruction-dome"></canvas>
+            </div>
+            <div class="scope-legend map-legend">
+              <span class="legend-item"><span class="legend-swatch is-map-unmapped"></span>not checked</span>
+              <span class="legend-item"><span class="legend-swatch is-map-clear"></span>clear</span>
+              <span class="legend-item"><span class="legend-swatch is-map-obstructed"></span>obstructed</span>
+            </div>
+          </div>
+          <div class="obstruction-percent tabular-num" id="line-of-sight-percent"></div>
+        </div>
+
         <div class="scope is-list">
           <div class="scope-head">
             <span class="label">Incidents</span>
@@ -171,10 +190,6 @@
     </div>
 
     <div class="status-strip">
-      <div class="cell">
-        <div class="label">Line of Sight</div>
-        <div class="status-value is-row" id="line-of-sight"><span id="line-of-sight-state">—</span><span class="status-note" id="line-of-sight-percent"></span></div>
-      </div>
       <div class="cell">
         <div class="label">Terminal</div>
         <div class="status-value" id="hardware-version">—</div>

@@ -505,6 +505,12 @@
   const DROP_HOT_PERCENT = 5;
   const DROP_WARM_PERCENT = 0.5;
 
+  // Houston's own map while -track-satellite clears the dish's; it has no % until enough sky is mapped.
+  function describeObstruction(sample) {
+    if (sample.obstruction_fraction == null) return sample.obstruction_source === "map" ? "—% obstructed" : "";
+    return formatNumber(sample.obstruction_fraction * 100, 2) + "% obstructed";
+  }
+
   function updateReadouts(sample) {
     setLinkState(sample.link_state);
     const isOffline = sample.link_state === "OFFLINE";
@@ -529,16 +535,14 @@
           ? " is-caution"
           : ""));
 
-    setText("line-of-sight-state", isOffline
-      ? "—"
-      : sample.obstructed
-        ? "OBSTRUCTED"
-        : "CLEAR");
-    setClassName("line-of-sight",
-      "status-value is-row " + (isOffline ? "" : sample.obstructed ? "is-alarm" : "is-nominal"));
-    setText("line-of-sight-percent", isOffline
-      ? ""
-      : formatNumber((sample.obstruction_fraction || 0) * 100, 2) + "% obstruction");
+    const buildingMap = sample.obstruction_source === "map" && sample.obstruction_fraction == null;
+    const lineOfSight = isOffline ? ["—", ""]
+      : sample.obstructed ? ["OBSTRUCTED", "is-alarm"]
+        : buildingMap ? ["BUILDING MAP", "is-building"]
+          : ["CLEAR", "is-nominal"];
+    setText("line-of-sight-state", lineOfSight[0]);
+    setClassName("line-of-sight", "los-state " + lineOfSight[1]);
+    setText("line-of-sight-percent", isOffline ? "" : describeObstruction(sample));
 
     if (sample.hardware_version) setText("hardware-version", sample.hardware_version);
     if (sample.software_version) setText("software-version", sample.software_version);

@@ -474,7 +474,7 @@ header {
 
 .body-side {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(360px, 1fr);
   gap: 10px;
   min-width: 0;
 }
@@ -537,6 +537,76 @@ header {
 .legend-swatch.is-above {
   background: var(--label-dim);
 }
+
+/* Line of sight, plus Houston's own obstruction map as a dome while satellite tracking runs. */
+.los-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--label-dim);
+}
+
+.los-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.los-state.is-nominal {
+  color: var(--nominal);
+}
+
+.los-state.is-alarm {
+  color: var(--alarm);
+}
+
+.los-state.is-building {
+  color: var(--label);
+}
+
+.obstruction-percent {
+  margin: 2px 0 4px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--label);
+}
+
+.dome-frame {
+  width: 100%;
+  aspect-ratio: 1.3;
+}
+
+.dome-frame #obstruction-dome {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.map-legend {
+  margin: 6px 0 4px;
+  row-gap: 4px;
+}
+
+.legend-swatch.is-map-clear {
+  background: #eef2f6;
+}
+
+.legend-swatch.is-map-obstructed {
+  background: var(--alarm);
+}
+
+.legend-swatch.is-map-unmapped {
+  background: #59626d;
+}
+
 
 /* Where the dish is aimed, under the scope it describes. Until the dish
    reports a boresight the cone is an assumption, and is-assumed says so. */
@@ -884,7 +954,7 @@ header {
 
 .status-strip {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
 
@@ -899,32 +969,6 @@ header {
   margin-top: 8px;
   letter-spacing: 0.02em;
   word-break: break-word;
-}
-
-.status-strip .status-value.is-nominal {
-  color: var(--nominal);
-}
-
-.status-strip .status-value.is-alarm {
-  color: var(--alarm);
-}
-
-.status-strip .status-value.is-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.status-strip .status-note {
-  color: var(--label-dim);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  flex: 0 0 auto;
-}
-
-.status-strip .status-value.is-row #line-of-sight-state {
-  white-space: nowrap;
 }
 
 /* ---- Footer ------------------------------------------------------------ */
@@ -1036,14 +1080,6 @@ footer {
   }
   .alarm-subtext {
     display: none;
-  }
-}
-
-@media (max-width: 480px) {
-  .status-strip .status-value.is-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
   }
 }
 

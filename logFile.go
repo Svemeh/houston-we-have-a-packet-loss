@@ -332,10 +332,14 @@ func mergeWorstCase(worst, candidate TelemetrySample) TelemetrySample {
 	if candidate.DropRateFraction > worst.DropRateFraction {
 		worst.DropRateFraction = candidate.DropRateFraction
 	}
-	if candidate.ObstructionFraction > worst.ObstructionFraction {
-		worst.ObstructionFraction = candidate.ObstructionFraction
+	if candidate.ObstructionFraction != nil && (worst.ObstructionFraction == nil || *candidate.ObstructionFraction > *worst.ObstructionFraction) {
+		fraction := *candidate.ObstructionFraction
+		worst.ObstructionFraction = &fraction
 	}
 	worst.Obstructed = worst.Obstructed || candidate.Obstructed
+	worst.DishObstructed = worst.DishObstructed || candidate.DishObstructed
+	worst.ObstructionSource = candidate.ObstructionSource
+	worst.MapCoverage = candidate.MapCoverage
 
 	if linkStateSeverity(candidate.LinkState) > linkStateSeverity(worst.LinkState) {
 		worst.LinkState = candidate.LinkState

@@ -227,6 +227,16 @@ func (tracker *SkyTracker) SetServiceFloor(floorDeg float64) {
 	tracker.measuredFloorDeg = floorDeg
 }
 
+// ServiceFloor is the measured service floor, or ServiceFloorElevationDeg until there is one.
+func (tracker *SkyTracker) ServiceFloor() float64 {
+	tracker.mutex.RLock()
+	defer tracker.mutex.RUnlock()
+	if tracker.measuredFloorDeg > 0 {
+		return tracker.measuredFloorDeg
+	}
+	return ServiceFloorElevationDeg
+}
+
 // Location returns the current position and where it came from; source is ""
 // when there is none yet.
 func (tracker *SkyTracker) Location() (observer Observer, source string) {

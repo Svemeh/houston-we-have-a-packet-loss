@@ -37,6 +37,7 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 - **Dish telemetry** — status and outage history from the dish's gRPC API, including fields newer than the published protobufs (decoded by tag from the unknown-field bytes).
 - **Hourly rollup** — loss, RTT p50/p90/p99/max and jitter per target, plus loss bucketed by second within the 15 s satellite slot. Kept forever at ~600 B/hour.
 - **Satellite sky view** — on the dashboard: every Starlink satellite above the horizon, propagated with SGP4 from SpaceX's own orbit predictions (Celestrak supplemental elements, refreshed every 2 h).
+- **Serving satellite and obstruction map** — names the satellite serving each 15 s slot by matching the arc it traces on the dish's obstruction map, and builds Houston's own obstruction map from those arcs, drawn as a 3D dome you can turn.
 - **Fake mode** — a synthetic dish that cycles through degraded, obstructed, no-signal and offline states, so the UI can be developed without hardware.
 - **Single binary, no database** — static files are embedded; data is append-only JSON Lines, pruned by atomic rewrite.
 
@@ -144,8 +145,9 @@ ICMP needs permission on Linux: `sudo sysctl -w net.ipv4.ping_group_range="0 214
 | `-fake` | off | Synthetic telemetry |
 | `-router` | `auto` | LAN router for the hop pinger: `auto` (default gateway), an IP, or `none` |
 | `-no-hops` | off | Disable the pingers and the rollup |
-| `-track-satellite` | off | Identify the serving satellite every 15 s (clears the dish's obstruction map each slot) |
+| `-track-satellite` | on | Identify the serving satellite every 15 s (clears the dish's obstruction map each slot); `-track-satellite=false` turns it off |
 | `-log`, `-hops-log`, `-outage-log`, `-rollup-log`, `-handover-log`, `-serving-log` | `data/*.jsonl` | Log locations |
+| `-obstruction-map` | `data/obstructionMap.json` | Houston's own obstruction map, kept while `-track-satellite` runs |
 | `-version` | | Print the version and exit |
 
 Intervals, retention and thresholds live in [`const.go`](const.go).
@@ -159,6 +161,7 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `/history?range=1h` · `/pinghistory?range=1h` | Downsampled history (`range` = Go duration or `all`) |
 | `/log` · `/hopslog` | Raw JSONL |
 | `/location` | Observer location: `GET`, or `POST` JSON `{"latitude_deg":…,"longitude_deg":…}` |
+| `/serving` · `/obstructionmap` | Latest serving-satellite slot · Houston's own obstruction map (`enabled:false` without `-track-satellite`) |
 
 ## Project layout
 
@@ -172,6 +175,7 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `gateway*.go` | Finds the LAN router from the default gateway |
 | `rollup.go` | Hourly summary with handover-slot bucketing |
 | `serving.go` | Serving satellite: obstruction-map reset, arc matching, `serving.jsonl` |
+| `obstructionmap.go` | Houston's own obstruction map: merges each slot's traced cells, saves `obstructionMap.json` |
 | `logFile.go` | JSONL persistence, pruning, range reads, downsampling |
 | `hub.go` · `server.go` | SSE fan-out and HTTP routes |
 | `sky.go` · `settings.go` | Orbit element fetch/cache and SGP4 propagation · location saved from the dashboard |
@@ -184,7 +188,7 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 go test -race ./...
 ```
 
-Covers the rollup statistics and handover bucketing, both downsamplers, protobuf outage decoding, log append/prune/read, hub backpressure and the link-state heuristic.
+Covers the rollup statistics and handover bucketing, both downsamplers, protobuf outage decoding, log append/prune/read, hub backpressure, the link-state heuristic, arc matching and the obstruction map merge and save.
 
 ### CI
 
@@ -209,5 +213,6 @@ A `v*` tag runs the same CI checks before [`release.yml`](.github/workflows/rele
 
 - The hourly rollup is written to disk but not yet shown on the dashboard.
 - The dish's own drop counter reports ~3 s late relative to the pings.
-- With `-track-satellite`, Houston clears the dish's obstruction map every 15 s. The dish then reports little or no obstruction, so the obstruction % and "obstructed" state, in Houston and in the Starlink app, are unreliable while it runs. The resets don't affect how the dish works (confirmed by UVic's LEO-NET lab).
+- Satellite tracking clears the dish's obstruction map every 15 s, so the Starlink app shows little or no obstruction while Houston runs. Run with `-track-satellite=false` to keep the app's map. Houston keeps its own map from the cells the dish traces each slot and uses that instead. Its obstruction % appears once 60 % of the sky above the service floor has been checked; until then the dashboard shows "BUILDING MAP". The resets don't affect how the dish works.
+- Houston's obstruction map doesn't know when the dish is moved to a new spot. Delete `data/obstructionMap.json` and restart after moving it.
 

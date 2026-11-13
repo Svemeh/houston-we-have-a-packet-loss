@@ -27,23 +27,27 @@ func LoadSettings(path string) (Settings, error) {
 	return settings, err
 }
 
-// SaveSettings writes the file through a temp file and a rename, so a crash
-// mid-write leaves the old settings rather than half of the new ones.
+// SaveSettings writes the settings file atomically.
 func SaveSettings(path string, settings Settings) error {
 	raw, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err
 	}
+	return writeFileAtomic(path, append(raw, '\n'))
+}
+
+// writeFileAtomic writes through a temp file and a rename, so a crash mid-write leaves the old file.
+func writeFileAtomic(path string, data []byte) error {
 	directory := filepath.Dir(path)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return err
 	}
-	tempFile, err := os.CreateTemp(directory, ".settings-*.json")
+	tempFile, err := os.CreateTemp(directory, "."+filepath.Base(path)+"-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tempFile.Name()) // no-op once renamed
-	if _, err := tempFile.Write(append(raw, '\n')); err != nil {
+	if _, err := tempFile.Write(data); err != nil {
 		tempFile.Close()
 		return err
 	}
