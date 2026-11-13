@@ -16,8 +16,11 @@
   const POSITION_UPDATE_MS = 100; // satellites move a few pixels a second; no need to recompute every frame
   const PICK_RADIUS_PX = 12; // how close a click has to land to a satellite
   const ORBIT_POINTS = 256;
-  const DISH_VIEW_OFFSET_DEG = 18; // the dish view looks at the dish from this far toward the equator
-  const DISH_VIEW_DISTANCE = 1.3; // camera distance from the Earth's centre in the dish view, about 1,900 km up; a beam to a low satellite still fits
+  const DISH_VIEW = { tilt: 30, range: 0.47 }; // dish view start: camera 30° above the dish's horizon, 0.47 Earth radii (~3,000 km) away
+  const DISH_RANGE_LIMITS = [0.08, 1.5]; // in Earth radii
+  const DISH_TILT_LIMITS = [3, 89]; // degrees above the dish's horizon
+  const GIMBAL_PX = 84;
+  const GIMBAL_COLOURS = { rim: "rgba(138, 151, 166, 0.55)", ring: "rgba(223, 231, 239, 0.75)", north: "#f5b740" };
   const BEAM_SCALE_DISTANCE = 2.4; // camera distance at which the beam is drawn at BEAM_RADIUS; it keeps its on-screen width when zoomed
   const GLOBE_FIT_RADIUS = 1.1; // Earth plus its glow, with a little margin, fits the panel
   const SATELLITE_DOT_PX = 3.5;
@@ -274,12 +277,14 @@
 
   // ---- Camera and input -----------------------------------------------------
 
-  // focus 0 aims at the Earth's centre, 1 at the dish; the dish view uses 1.
-  let view = { lat: 20, lon: 10, zoom: 1, focus: 0 };
+  // Two camera rigs, blended by focus: 0 orbits the Earth's centre (lat/lon/zoom),
+  // 1 orbits the dish (heading = compass direction from the dish to the camera, tilt, range).
+  let view = { lat: 20, lon: 10, zoom: 1, focus: 0, heading: 180, tilt: DISH_VIEW.tilt, range: DISH_VIEW.range };
   let target = null;
   const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const moveTo = (next, animate) => {
+    next = { ...view, ...next };
     if (animate && !reduceMotion) target = next;
     else {
       view = next;
@@ -288,17 +293,18 @@
     markDirty();
   };
 
+  const globeOverDish = () => ({ lat: Math.max(-80, Math.min(80, observer.lat - 22 * Math.sign(observer.lat || 1))), lon: observer.lon + 2, zoom: 1 });
+
   // Whole globe, seen from the equator side of the dish.
   function centreOnDish(animate) {
     if (!observer) return;
-    moveTo({ lat: Math.max(-80, Math.min(80, observer.lat - 22 * Math.sign(observer.lat || 1))), lon: observer.lon + 2, zoom: 1, focus: 0 }, animate);
+    moveTo({ ...globeOverDish(), focus: 0 }, animate);
   }
 
-  // Close up on the dish, looking at it from a little toward the equator so the beam stands up.
+  // Close up on the dish, from the equator side so the beam stands up against the ground.
   const zoomToDish = () => {
     if (!observer) return;
-    const lat = Math.max(-80, Math.min(80, observer.lat - DISH_VIEW_OFFSET_DEG * Math.sign(observer.lat || 1)));
-    moveTo({ lat, lon: observer.lon, zoom: DISH_VIEW_DISTANCE / fitDistance(), focus: 1 }, true);
+    moveTo({ ...globeOverDish(), focus: 1, heading: observer.lat >= 0 ? 180 : 0, tilt: DISH_VIEW.tilt, range: DISH_VIEW.range }, true);
   };
 
   // Keep the camera outside the satellite shell when it looks at the Earth's centre.
@@ -309,17 +315,47 @@
     const half = (camera.fov / 2) * DEG;
     return GLOBE_FIT_RADIUS / Math.sin(Math.min(half, Math.atan(Math.tan(half) * camera.aspect)));
   };
-  // Aimed at the dish, the camera may come inside the satellite shell; aimed at the centre it may not.
-  const minDistance = () => MIN_DISTANCE + (DISH_VIEW_DISTANCE - MIN_DISTANCE) * view.focus;
-  const cameraDistance = () => Math.max(minDistance(), fitDistance() * view.zoom);
-  const clampZoom = (zoom) => Math.min(2, Math.max(minDistance() / fitDistance(), zoom));
+  const cameraDistance = () => Math.max(MIN_DISTANCE, fitDistance() * view.zoom);
+  const clampZoom = (zoom) => Math.min(2, Math.max(MIN_DISTANCE / fitDistance(), zoom));
+  const clamp = (value, [low, high]) => Math.min(high, Math.max(low, value));
 
-  const focusPoint = new THREE.Vector3();
+  const north = new THREE.Vector3(0, 1, 0);
+  const dishPoint = new THREE.Vector3(), dishUp = new THREE.Vector3(), dishEast = new THREE.Vector3(), dishNorth = new THREE.Vector3();
+  const globePosition = new THREE.Vector3(), dishPosition = new THREE.Vector3(), lookPoint = new THREE.Vector3();
   const placeCamera = () => {
-    sceneFromLatLon(view.lat, view.lon, cameraDistance(), camera.position);
-    if (observer && view.focus > 0) sceneFromLatLon(observer.lat, observer.lon, view.focus, focusPoint);
-    else focusPoint.set(0, 0, 0);
-    camera.lookAt(focusPoint);
+    sceneFromLatLon(view.lat, view.lon, cameraDistance(), globePosition);
+    if (!observer || view.focus <= 0) {
+      camera.position.copy(globePosition);
+      camera.up.copy(north);
+      camera.lookAt(0, 0, 0);
+      return;
+    }
+    sceneFromLatLon(observer.lat, observer.lon, 1, dishPoint);
+    dishUp.copy(dishPoint).normalize();
+    dishEast.crossVectors(north, dishUp).normalize();
+    dishNorth.crossVectors(dishUp, dishEast);
+    const h = view.heading * DEG, t = view.tilt * DEG;
+    dishPosition.copy(dishPoint)
+      .addScaledVector(dishEast, view.range * Math.cos(t) * Math.sin(h))
+      .addScaledVector(dishNorth, view.range * Math.cos(t) * Math.cos(h))
+      .addScaledVector(dishUp, view.range * Math.sin(t));
+    camera.position.lerpVectors(globePosition, dishPosition, view.focus);
+    camera.up.lerpVectors(north, dishUp, view.focus).normalize();
+    camera.lookAt(lookPoint.copy(dishPoint).multiplyScalar(view.focus));
+  };
+
+  // Turns the camera around what it is looking at: the dish in the dish view, else the Earth.
+  const orbitBy = (dx, dy) => {
+    target = null;
+    if (view.focus >= 0.5) {
+      view.heading = (view.heading + dx * 0.4 + 360) % 360;
+      view.tilt = clamp(view.tilt + dy * 0.3, DISH_TILT_LIMITS);
+    } else {
+      const k = (0.25 * (cameraDistance() - 1)) / 2;
+      view.lon -= dx * k;
+      view.lat = Math.max(-80, Math.min(80, view.lat + dy * k));
+    }
+    markDirty();
   };
 
   // True when the Earth sits between the camera and the point.
@@ -360,6 +396,82 @@
     markDirty();
   };
 
+  const zoomBy = (factor) => {
+    target = null;
+    if (view.focus >= 0.5) view.range = clamp(view.range * factor, DISH_RANGE_LIMITS);
+    else view.zoom = clampZoom(view.zoom * factor);
+    markDirty();
+  };
+
+  // ---- Gimbal ---------------------------------------------------------------
+  // A small trackball in the corner: drag it to turn the camera around what it looks at.
+  const gimbal = document.getElementById("globe-gimbal");
+  const gimbalContext = gimbal ? gimbal.getContext("2d") : null;
+  if (gimbal) {
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    gimbal.width = gimbal.height = GIMBAL_PX * ratio;
+    gimbalContext.scale(ratio, ratio);
+    let last = null;
+    gimbal.addEventListener("pointerdown", (event) => {
+      gimbal.setPointerCapture(event.pointerId);
+      last = { x: event.clientX, y: event.clientY };
+    });
+    gimbal.addEventListener("pointermove", (event) => {
+      if (!last) return;
+      orbitBy((event.clientX - last.x) * 1.5, (event.clientY - last.y) * 1.5);
+      last = { x: event.clientX, y: event.clientY };
+    });
+    const stop = () => (last = null);
+    gimbal.addEventListener("pointerup", stop);
+    gimbal.addEventListener("pointercancel", stop);
+    gimbal.addEventListener("dblclick", () => {
+      if (view.focus >= 0.5) moveTo({ heading: observer && observer.lat < 0 ? 0 : 180, tilt: DISH_VIEW.tilt }, true);
+      else centreOnDish(true);
+    });
+  }
+
+  // Draws the gimbal from the camera's current heading and tilt.
+  const drawGimbal = () => {
+    if (!gimbalContext) return;
+    const g = gimbalContext, c = GIMBAL_PX / 2, r = c - 12;
+    const dishMode = view.focus >= 0.5;
+    const facing = dishMode ? (view.heading + 180) % 360 : 0;
+    const tilt = dishMode ? view.tilt : 30;
+    g.clearRect(0, 0, GIMBAL_PX, GIMBAL_PX);
+    g.lineWidth = 1.2;
+    g.strokeStyle = GIMBAL_COLOURS.rim;
+    g.beginPath();
+    g.arc(c, c, r, 0, 2 * Math.PI);
+    g.stroke();
+    // The ground ring, flattened by how steeply the camera looks down.
+    g.strokeStyle = GIMBAL_COLOURS.ring;
+    g.beginPath();
+    g.ellipse(c, c, r, Math.max(1.5, r * Math.sin(tilt * DEG)), 0, 0, 2 * Math.PI);
+    g.stroke();
+    // North on that ring, as the camera sees it.
+    const a = (0 - facing) * DEG;
+    const nx = c + Math.sin(a) * r, ny = c - Math.cos(a) * r * Math.sin(tilt * DEG);
+    g.fillStyle = GIMBAL_COLOURS.north;
+    g.beginPath();
+    g.arc(nx, ny, 3.2, 0, 2 * Math.PI);
+    g.fill();
+    g.font = "600 10px ui-monospace, SF Mono, Menlo, Consolas, monospace";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    const lx = c + Math.sin(a) * (r + 7), ly = c - Math.cos(a) * (r * Math.sin(tilt * DEG) + 7);
+    g.fillText("N", lx, ly);
+    // The up axis.
+    g.strokeStyle = GIMBAL_COLOURS.ring;
+    g.beginPath();
+    g.moveTo(c, c);
+    g.lineTo(c, c - r * Math.cos(tilt * DEG));
+    g.stroke();
+    g.fillStyle = GIMBAL_COLOURS.ring;
+    g.beginPath();
+    g.arc(c, c, 2.2, 0, 2 * Math.PI);
+    g.fill();
+  };
+
   const pointers = new Map();
   let lastPinch = 0;
   let pressed = null;
@@ -376,16 +488,12 @@
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       const distance = Math.hypot(a.x - b.x, a.y - b.y);
-      if (lastPinch) view.zoom = clampZoom((view.zoom * lastPinch) / distance);
+      if (lastPinch) zoomBy(lastPinch / distance);
       lastPinch = distance;
+      markDirty();
     } else {
-      const k = (0.25 * (cameraDistance() - 1)) / 2;
-      // Turning the globe by hand eases the aim back to its centre.
-      view.focus *= Math.exp(-Math.hypot(event.clientX - previous.x, event.clientY - previous.y) / 150);
-      view.lon -= (event.clientX - previous.x) * k;
-      view.lat = Math.max(-80, Math.min(80, view.lat + (event.clientY - previous.y) * k));
+      orbitBy(event.clientX - previous.x, event.clientY - previous.y);
     }
-    markDirty();
   });
   const release = (event) => {
     pointers.delete(event.pointerId);
@@ -401,9 +509,7 @@
   canvas.addEventListener("wheel", (event) => {
     if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
-    view.zoom = clampZoom(view.zoom * Math.exp(event.deltaY * 0.003));
-    target = null;
-    markDirty();
+    zoomBy(Math.exp(event.deltaY * 0.003));
   }, { passive: false });
 
   if (ui.viewGlobe) ui.viewGlobe.addEventListener("click", () => centreOnDish(true));
@@ -487,12 +593,18 @@
       view.lon += (target.lon - view.lon) * 0.08;
       view.zoom += (target.zoom - view.zoom) * 0.08;
       view.focus += (target.focus - view.focus) * 0.08;
-      if (Math.abs(target.zoom - view.zoom) < 0.002 && Math.abs(target.lat - view.lat) < 0.05 && Math.abs(target.focus - view.focus) < 0.002) {
+      const turn = ((target.heading - view.heading + 540) % 360) - 180;
+      view.heading = (view.heading + turn * 0.08 + 360) % 360;
+      view.tilt += (target.tilt - view.tilt) * 0.08;
+      view.range += (target.range - view.range) * 0.08;
+      if (Math.abs(target.zoom - view.zoom) < 0.002 && Math.abs(target.lat - view.lat) < 0.05 && Math.abs(target.focus - view.focus) < 0.002
+        && Math.abs(turn) < 0.1 && Math.abs(target.tilt - view.tilt) < 0.05 && Math.abs(target.range - view.range) < 0.001) {
         view = { ...target };
         target = null;
       }
     }
     placeCamera();
+    drawGimbal();
     if (now - lastPositions >= POSITION_UPDATE_MS) {
       lastPositions = now;
       updatePositions(t);

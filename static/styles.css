@@ -783,6 +783,23 @@ header {
   outline-offset: 1px;
 }
 
+.stage .globe-gimbal {
+  position: absolute;
+  inset: auto;
+  top: 6px;
+  right: 6px;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  cursor: grab;
+  touch-action: none;
+}
+
+.stage .globe-gimbal:active {
+  cursor: grabbing;
+}
+
 .globe-pick {
   position: absolute;
   top: 0;
