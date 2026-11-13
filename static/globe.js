@@ -9,6 +9,8 @@
   const SCENE_EARTH_RADIUS_KM = 6371; // the drawn sphere; altitude is scaled against it
   const EARTH_ROTATION_RAD_S = 7.2921158553e-5;
   const IDLE_FRAME_MS = 100; // about 10 fps unless the view is moving
+  const PULSE_FRAME_MS = 33; // about 30 fps while the beam pulse runs
+  const PULSE_PERIOD_MS = 1400; // one trip from dish to satellite
   const POSITION_UPDATE_MS = 100; // satellites move a few pixels a second; no need to recompute every frame
   const PICK_RADIUS_PX = 12; // how close a click has to land to a satellite
   const ORBIT_POINTS = 256;
@@ -255,8 +257,9 @@
   const dish = makePoints(dotTexture(COLOURS.dish), 8);
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0022, 1, 8, 1, true), new THREE.MeshBasicMaterial({ color: amber }));
   const servingMark = makePoints(dotTexture(COLOURS.serving, true), MARKER_PX);
-  const servingParts = [beam, servingMark];
-  scene.add(beam);
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.0045, 10, 8), new THREE.MeshBasicMaterial({ color: 0xfff1cc }));
+  const servingParts = [beam, pulse, servingMark];
+  scene.add(beam, pulse);
 
   const selectedMark = makePoints(dotTexture(COLOURS.selected, true), MARKER_PX);
   const orbit = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: COLOURS.selected }));
@@ -413,6 +416,8 @@
     beam.position.copy(dish.position).addScaledVector(direction, length / 2);
     beam.quaternion.setFromUnitVectors(up, direction);
     beam.scale.set(1, length, 1);
+    const phase = reduceMotion ? 0.5 : (Date.now() % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
+    pulse.position.copy(dish.position).addScaledVector(direction, length * phase);
     placeTag(ui.tag, satellite, object.name);
   };
 
@@ -483,7 +488,7 @@
   const loop = (now) => {
     frameRequest = 0;
     if (!onScreen || document.hidden) return;
-    if (dirtyState.dirty || target || pointers.size || now - lastFrame >= IDLE_FRAME_MS) {
+    if (dirtyState.dirty || target || pointers.size || now - lastFrame >= (pulse.visible && !reduceMotion ? PULSE_FRAME_MS : IDLE_FRAME_MS)) {
       dirtyState.dirty = false;
       lastFrame = now;
       draw(now);
