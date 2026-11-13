@@ -51,6 +51,10 @@
           <div class="label">Packet Loss <span class="label-note">dish</span></div>
           <div class="reading"><span class="reading-value" id="value-packet-loss">—</span><span class="reading-unit">%</span></div>
         </div>
+        <div class="cell" id="cell-power">
+          <div class="label">Power <span class="label-note">antenna</span></div>
+          <div class="reading"><span class="reading-value" id="value-power">—</span><span class="reading-unit">W</span></div>
+        </div>
       </div>
 
       <!-- What this machine measures for itself, and what the history says. -->
@@ -98,6 +102,10 @@
         <div class="scope">
           <div class="scope-head"><span class="label">Upload</span><span class="scope-range-label" id="chart-range-upload"></span></div>
           <canvas id="chart-upload"></canvas>
+        </div>
+        <div class="scope">
+          <div class="scope-head"><span class="label">Power</span><span class="scope-range-label" id="chart-range-power"></span></div>
+          <canvas id="chart-power"></canvas>
         </div>
         <div class="scope">
           <div class="scope-head"><span class="label">Machine-to-Internet Ping</span><span class="scope-range-label" id="chart-range-machine-to-internet-ping"></span></div>

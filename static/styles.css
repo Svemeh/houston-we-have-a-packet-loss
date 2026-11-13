@@ -27,6 +27,7 @@
   --chart-packet-loss: #e5455c;
   --chart-download: #00c9c0;
   --chart-upload: #b75cf0;
+  --chart-power: #6ea8ff;
   --chart-machine-to-internet-ping: #f5873d;
   --chart-machine-to-internet-loss: #ff7aa2;
 }
@@ -55,6 +56,7 @@
   --chart-packet-loss: #ff6b4a;
   --chart-download: #b9a6e6;
   --chart-upload: #9be3c3;
+  --chart-power: #7fb2ff;
   --chart-machine-to-internet-ping: #ffd166;
   --chart-machine-to-internet-loss: #ff6b4a;
 }
@@ -84,6 +86,7 @@
   --chart-packet-loss: #ff5e7e;
   --chart-download: #ff9f43;
   --chart-upload: #c8d6c6;
+  --chart-power: #8fc1ff;
   --chart-machine-to-internet-ping: #f7d154;
   --chart-machine-to-internet-loss: #ff5e7e;
 }
@@ -113,6 +116,7 @@
   --chart-packet-loss: #e35336;
   --chart-download: #f4a460;
   --chart-upload: #d6d6a8;
+  --chart-power: #9fb8d8;
   --chart-machine-to-internet-ping: #f0c36d;
   --chart-machine-to-internet-loss: #e35336;
 }
@@ -320,7 +324,7 @@ header {
 }
 
 .tiles.is-dish {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .tiles.is-measured {

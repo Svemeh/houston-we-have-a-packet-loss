@@ -29,6 +29,7 @@ const (
 	fakeBaseLatencyMs = 38
 	fakeBaseDownload  = 180
 	fakeBaseUpload    = 15
+	fakeBasePowerW    = 42
 
 	fakeAssumedUptime = 61 * time.Hour
 )
@@ -66,6 +67,7 @@ func (fake *FakeCollector) Collect(ctx context.Context) (TelemetrySample, error)
 	latencyMs := fakeBaseLatencyMs + 6*math.Sin(phase/17) + fake.randomSource.NormFloat64()*2
 	downloadMbps := fakeBaseDownload + 55*math.Sin(phase/29) + fake.randomSource.NormFloat64()*9
 	uploadMbps := fakeBaseUpload + 5*math.Sin(phase/23) + fake.randomSource.NormFloat64()*1.5
+	powerWatts := fakeBasePowerW + 6*math.Sin(phase/37) + fake.randomSource.NormFloat64()*1.2
 
 	dropRateFraction := 0.0
 	isObstructed := false
@@ -97,6 +99,7 @@ func (fake *FakeCollector) Collect(ctx context.Context) (TelemetrySample, error)
 		DropRateFraction:    dropRateFraction,
 		Obstructed:          isObstructed,
 		ObstructionFraction: &obstructionFraction,
+		PowerWatts:          math.Max(0, powerWatts),
 		UptimeSeconds:       uint64(now.Sub(fake.startedAt).Seconds()),
 		HardwareVersion:     "rev3_proto2 (fake)",
 		SoftwareVersion:     "2025.02.14.mr30330 (fake)",

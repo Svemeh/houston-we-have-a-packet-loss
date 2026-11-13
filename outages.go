@@ -66,16 +66,15 @@ const (
 	outageSettleTime = 5 * time.Second
 )
 
+// CollectOutages reads the outage list from the per-second poll's history,
+// or from its own GetHistory call when that one is stale.
 func (collector *StarlinkCollector) CollectOutages(ctx context.Context) ([]DishOutage, error) {
-	response, err := collector.deviceClient.Handle(ctx, &device.Request{
-		Request: &device.Request_GetHistory{GetHistory: &device.GetHistoryRequest{}},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("GetHistory: %w", err)
-	}
-	history := response.GetDishGetHistory()
+	history := collector.recentHistory()
 	if history == nil {
-		return nil, fmt.Errorf("response contained no dish history")
+		var err error
+		if history, err = collector.fetchHistory(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return readOutages(history, time.Now())
 }
