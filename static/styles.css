@@ -759,26 +759,6 @@ header {
   color: #bff8ff;
 }
 
-.stage-tag.is-dim {
-  transform: translate(-130%, -50%);
-  color: var(--label);
-}
-
-.stage-tag.is-dish {
-  transform: translate(-50%, 70%);
-}
-
-.stage-tag.is-compass {
-  transform: translate(-50%, -50%);
-  font-size: 11px;
-  color: var(--label);
-}
-
-.stage-tag.is-north {
-  font-weight: 600;
-  color: var(--amber);
-}
-
 .stage-link {
   text-decoration: none;
 }

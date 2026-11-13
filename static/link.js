@@ -4,12 +4,14 @@
   const DISH_HEIGHT = 0.46; // panel centre above the ground, in scene units
   const SATELLITE_DISTANCE = 3.1; // dish to satellite in scene units; the real ~700 km is not to scale
   const GROUND_RADIUS = 2.75;
-  const FIT_RADIUS = 3.5; // dish, beam and satellite in any direction fit the panel at zoom 1
+  const FIT_RADIUS = 3.0; // dish, beam and satellite in most directions fit the panel at zoom 1
   const GLIDE_SECONDS = 0.35; // time constant for the satellite moving to a new position
   const IDLE_FRAME_MS = 50; // 20 fps while the beam pulse runs
   const LIGHT_KM_PER_MS = 299.792458;
   const COMPASS_8 = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   const COMPASS_16 = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+  const LABEL_FONT = "ui-monospace, SF Mono, Menlo, Consolas, monospace";
+  const LABEL_COLOURS = { text: "#dfe7ef", amber: "#f5b740", dim: "#8a97a6" };
   const COLOURS = { amber: 0xf5b740, pulse: 0xfff1cc, label: 0x8a97a6, metal: 0x7d8792, panel: 0xc9d1d9, panelFace: 0xeef2f6, panelBack: 0x8e98a3, wing: 0x2f5f8f };
   const DEG = Math.PI / 180;
 
@@ -17,13 +19,7 @@
   const canvas = document.getElementById("link-canvas");
   if (!stage || !canvas) return;
   const shared = (window.houstonSky = window.houstonSky || {});
-  const tag = (id) => document.getElementById(`link-${id}-tag`);
   const ui = {
-    satellite: tag("satellite"),
-    elevation: tag("elevation"),
-    range: tag("range"),
-    dish: tag("dish"),
-    compass: { N: tag("n"), E: tag("e"), S: tag("s"), W: tag("w") },
     caption: document.getElementById("link-caption"),
     direction: document.getElementById("link-direction"),
   };
@@ -57,7 +53,7 @@
   sun.position.set(3, 6, 4);
   scene.add(sun);
 
-  // Ground disc with compass rings and ticks; the letters are HTML so they stay upright.
+  // Ground disc with compass rings and ticks; the rim breaks at N/E/S/W, where the letters sit on it.
   const groundTexture = () => {
     const size = 1024, c = size / 2, rim = 470;
     const texture = document.createElement("canvas");
@@ -69,10 +65,13 @@
     ctx.fillStyle = fade;
     ctx.fillRect(0, 0, size, size);
     ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(138, 151, 166, 0.35)";
-    ctx.beginPath();
-    ctx.arc(c, c, rim, 0, 2 * Math.PI);
-    ctx.stroke();
+    ctx.strokeStyle = "rgba(138, 151, 166, 0.45)";
+    for (let quarter = 0; quarter < 4; quarter++) {
+      const gap = 7 * DEG, start = quarter * Math.PI / 2;
+      ctx.beginPath();
+      ctx.arc(c, c, rim, start + gap, start + Math.PI / 2 - gap);
+      ctx.stroke();
+    }
     ctx.lineWidth = 2;
     ctx.strokeStyle = "rgba(138, 151, 166, 0.15)";
     for (const radius of [160, 320]) {
@@ -80,9 +79,10 @@
       ctx.arc(c, c, radius, 0, 2 * Math.PI);
       ctx.stroke();
     }
-    for (let az = 0; az < 360; az += 15) {
-      const major = az % 90 === 0, length = major ? 40 : 18, a = az * DEG;
-      ctx.strokeStyle = major ? "rgba(223, 231, 239, 0.7)" : "rgba(138, 151, 166, 0.4)";
+    for (let az = 15; az < 360; az += 15) {
+      if (az % 90 === 0) continue;
+      const major = az % 45 === 0, length = major ? 34 : 18, a = az * DEG;
+      ctx.strokeStyle = major ? "rgba(223, 231, 239, 0.6)" : "rgba(138, 151, 166, 0.4)";
       ctx.beginPath();
       ctx.moveTo(c + Math.sin(a) * (rim - length), c - Math.cos(a) * (rim - length));
       ctx.lineTo(c + Math.sin(a) * rim, c - Math.cos(a) * rim);
@@ -160,6 +160,61 @@
   const linkParts = [satellite, glow, beamCore, beamGlow, pulse, groundRay, drop, elevationArc, azimuthArc];
   scene.add(...linkParts);
 
+  // Text drawn into the scene as sprites, so it moves with the model in the same frame.
+  const makeLabel = ({ colour = LABEL_COLOURS.text, weight = 400, size = 12, anchor = [0.5, 0.5] } = {}) => {
+    const ratio = 2;
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false }));
+    sprite.center.set(anchor[0], anchor[1]);
+    sprite.userData.anchor = anchor;
+    sprite.renderOrder = 10;
+    let current = null;
+    sprite.userData.setText = (text) => {
+      if (text === current) return;
+      current = text;
+      const font = `${weight} ${size * ratio}px ${LABEL_FONT}`;
+      context.font = font;
+      const padding = 6 * ratio;
+      canvas.width = Math.ceil(context.measureText(text).width) + padding * 2;
+      canvas.height = Math.ceil(size * ratio * 1.6);
+      context.font = font;
+      context.textBaseline = "middle";
+      context.shadowColor = "rgba(0, 0, 0, 0.9)";
+      context.shadowBlur = 6 * ratio;
+      context.fillStyle = colour;
+      context.fillText(text, padding, canvas.height / 2);
+      texture.needsUpdate = true;
+      sprite.userData.cssWidth = canvas.width / ratio;
+      sprite.userData.cssHeight = canvas.height / ratio;
+    };
+    scene.add(sprite);
+    return sprite;
+  };
+  // Keeps a label the same size on screen wherever it is, and slides it sideways to stay inside the panel.
+  const sizeLabel = (sprite) => {
+    const { cssWidth, cssHeight, anchor } = sprite.userData;
+    const perPixel = (2 * Math.tan((camera.fov / 2) * DEG) * camera.position.distanceTo(sprite.position)) / Math.max(1, stage.clientHeight);
+    sprite.scale.set(cssWidth * perPixel, cssHeight * perPixel, 1);
+    const x = ((sprite.position.clone().project(camera).x + 1) / 2) * stage.clientWidth;
+    const margin = 4;
+    const lowest = (x + margin - stage.clientWidth) / cssWidth + 1, highest = (x - margin) / cssWidth;
+    sprite.center.x = Math.min(Math.max(anchor[0], lowest), Math.max(lowest, highest));
+  };
+  const labels = {
+    satellite: makeLabel({ colour: LABEL_COLOURS.amber, anchor: [0.5, -0.5] }),
+    range: makeLabel({ anchor: [-0.05, 0.5] }),
+    elevation: makeLabel({ colour: LABEL_COLOURS.dim, anchor: [1.1, 0.5] }),
+    dish: makeLabel({ anchor: [0.5, 1.7] }),
+    N: makeLabel({ colour: LABEL_COLOURS.dim, weight: 600, size: 13 }),
+    E: makeLabel({ colour: LABEL_COLOURS.dim, weight: 600, size: 13 }),
+    S: makeLabel({ colour: LABEL_COLOURS.dim, weight: 600, size: 13 }),
+    W: makeLabel({ colour: LABEL_COLOURS.dim, weight: 600, size: 13 }),
+  };
+  const linkLabels = [labels.satellite, labels.range, labels.elevation];
+
   const setLine = (object, points) => {
     object.geometry.dispose();
     object.geometry = new THREE.BufferGeometry().setFromPoints(points);
@@ -231,13 +286,10 @@
 
   // ---- Frame ----------------------------------------------------------------
 
-  const placeTag = (element, point, text) => {
-    if (!element) return;
-    const projected = point.clone().project(camera);
-    element.hidden = projected.z > 1;
-    element.style.left = `${((projected.x + 1) / 2) * stage.clientWidth}px`;
-    element.style.top = `${((1 - projected.y) / 2) * stage.clientHeight}px`;
-    setText(element, text);
+  const placeLabel = (sprite, point, text) => {
+    sprite.position.copy(point);
+    sprite.userData.setText(text);
+    sprite.visible = true;
   };
 
   let lastDraw = 0;
@@ -292,20 +344,21 @@
       setLine(azimuthArc, azPoints);
 
       const height = shared.location ? Math.round(shared.geo.heightOf(shared.location, object)) : null;
-      placeTag(ui.satellite, position, `${object.name}${height === null ? "" : ` · ${height} km up`}`);
-      placeTag(ui.elevation, direction(azDeg, elDeg / 2, 1.05).add(dishCentre), `${Math.round(object.el)}°`);
-      placeTag(ui.range, dishCentre.clone().addScaledVector(beam, length * 0.62),
+      placeLabel(labels.satellite, position.clone().add(new THREE.Vector3(0, 0.25, 0)), `${object.name}${height === null ? "" : ` · ${height} km up`}`);
+      placeLabel(labels.elevation, direction(azDeg, elDeg / 2, 0.95).add(dishCentre), `${Math.round(object.el)}°`);
+      placeLabel(labels.range, dishCentre.clone().addScaledVector(beam, length * 0.62),
         `${Math.round(object.range_km)} km · ${(object.range_km / LIGHT_KM_PER_MS).toFixed(1)} ms`);
       setText(ui.direction, `${Math.round(object.az) % 360}° ${COMPASS_16[Math.round(object.az / 22.5) % 16]} · ${Math.round(object.el)}° UP`);
     } else {
-      for (const element of [ui.satellite, ui.elevation, ui.range]) if (element) element.hidden = true;
+      for (const sprite of linkLabels) sprite.visible = false;
       setText(ui.direction, linkStatus());
     }
 
-    placeTag(ui.dish, new THREE.Vector3(0, 0, 0), dishText);
+    placeLabel(labels.dish, new THREE.Vector3(0, 0, 0), dishText);
     for (const [letter, azDeg] of [["N", 0], ["E", 90], ["S", 180], ["W", 270]]) {
-      placeTag(ui.compass[letter], direction(azDeg, 0, GROUND_RADIUS - 0.2), letter);
+      placeLabel(labels[letter], direction(azDeg, 0, GROUND_RADIUS), letter);
     }
+    for (const sprite of Object.values(labels)) if (sprite.visible) sizeLabel(sprite);
     renderer.render(scene, camera);
     return gliding;
   };
