@@ -16,6 +16,9 @@
   const POSITION_UPDATE_MS = 100; // satellites move a few pixels a second; no need to recompute every frame
   const PICK_RADIUS_PX = 12; // how close a click has to land to a satellite
   const ORBIT_POINTS = 256;
+  const DISH_VIEW_OFFSET_DEG = 18; // the dish view looks at the dish from this far toward the equator
+  const DISH_VIEW_DISTANCE = 1.3; // camera distance from the Earth's centre in the dish view, about 1,900 km up; a beam to a low satellite still fits
+  const BEAM_SCALE_DISTANCE = 2.4; // camera distance at which the beam is drawn at BEAM_RADIUS; it keeps its on-screen width when zoomed
   const GLOBE_FIT_RADIUS = 1.1; // Earth plus its glow, with a little margin, fits the panel
   const SATELLITE_DOT_PX = 3.5;
   const MARKER_PX = 18; // the ringed dot on the serving and the picked satellite
@@ -33,7 +36,8 @@
     pickDetail: document.getElementById("globe-pick-detail"),
     pickClose: document.getElementById("globe-pick-close"),
     pickTag: document.getElementById("globe-pick-tag"),
-    centre: document.getElementById("globe-centre"),
+    viewGlobe: document.getElementById("globe-view-globe"),
+    viewDish: document.getElementById("globe-view-dish"),
     caption: document.getElementById("globe-caption"),
   };
   const setText = (element, text) => {
@@ -270,23 +274,34 @@
 
   // ---- Camera and input -----------------------------------------------------
 
-  let view = { lat: 20, lon: 10, zoom: 1 };
+  // focus 0 aims at the Earth's centre, 1 at the dish; the dish view uses 1.
+  let view = { lat: 20, lon: 10, zoom: 1, focus: 0 };
   let target = null;
   const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // Seen from the equator side, so the beam and satellite heights show against space.
-  function centreOnDish(animate) {
-    if (!observer) return;
-    const next = { lat: Math.max(-80, Math.min(80, observer.lat - 22 * Math.sign(observer.lat || 1))), lon: observer.lon + 2, zoom: 1 };
+  const moveTo = (next, animate) => {
     if (animate && !reduceMotion) target = next;
     else {
       view = next;
       target = null;
     }
     markDirty();
+  };
+
+  // Whole globe, seen from the equator side of the dish.
+  function centreOnDish(animate) {
+    if (!observer) return;
+    moveTo({ lat: Math.max(-80, Math.min(80, observer.lat - 22 * Math.sign(observer.lat || 1))), lon: observer.lon + 2, zoom: 1, focus: 0 }, animate);
   }
 
-  // Keep the camera outside the satellite shell, or the satellites end up behind it.
+  // Close up on the dish, looking at it from a little toward the equator so the beam stands up.
+  const zoomToDish = () => {
+    if (!observer) return;
+    const lat = Math.max(-80, Math.min(80, observer.lat - DISH_VIEW_OFFSET_DEG * Math.sign(observer.lat || 1)));
+    moveTo({ lat, lon: observer.lon, zoom: DISH_VIEW_DISTANCE / fitDistance(), focus: 1 }, true);
+  };
+
+  // Keep the camera outside the satellite shell when it looks at the Earth's centre.
   const MIN_DISTANCE = 1.25 + 600 / SCENE_EARTH_RADIUS_KM;
 
   // Distance at which the whole globe fits the narrower side of the panel; zoom 1 is that.
@@ -294,12 +309,17 @@
     const half = (camera.fov / 2) * DEG;
     return GLOBE_FIT_RADIUS / Math.sin(Math.min(half, Math.atan(Math.tan(half) * camera.aspect)));
   };
-  const cameraDistance = () => Math.max(MIN_DISTANCE, fitDistance() * view.zoom);
-  const clampZoom = (zoom) => Math.min(2, Math.max(MIN_DISTANCE / fitDistance(), zoom));
+  // Aimed at the dish, the camera may come inside the satellite shell; aimed at the centre it may not.
+  const minDistance = () => MIN_DISTANCE + (DISH_VIEW_DISTANCE - MIN_DISTANCE) * view.focus;
+  const cameraDistance = () => Math.max(minDistance(), fitDistance() * view.zoom);
+  const clampZoom = (zoom) => Math.min(2, Math.max(minDistance() / fitDistance(), zoom));
 
+  const focusPoint = new THREE.Vector3();
   const placeCamera = () => {
     sceneFromLatLon(view.lat, view.lon, cameraDistance(), camera.position);
-    camera.lookAt(0, 0, 0);
+    if (observer && view.focus > 0) sceneFromLatLon(observer.lat, observer.lon, view.focus, focusPoint);
+    else focusPoint.set(0, 0, 0);
+    camera.lookAt(focusPoint);
   };
 
   // True when the Earth sits between the camera and the point.
@@ -360,6 +380,8 @@
       lastPinch = distance;
     } else {
       const k = (0.25 * (cameraDistance() - 1)) / 2;
+      // Turning the globe by hand eases the aim back to its centre.
+      view.focus *= Math.exp(-Math.hypot(event.clientX - previous.x, event.clientY - previous.y) / 150);
       view.lon -= (event.clientX - previous.x) * k;
       view.lat = Math.max(-80, Math.min(80, view.lat + (event.clientY - previous.y) * k));
     }
@@ -384,7 +406,8 @@
     markDirty();
   }, { passive: false });
 
-  if (ui.centre) ui.centre.addEventListener("click", () => centreOnDish(true));
+  if (ui.viewGlobe) ui.viewGlobe.addEventListener("click", () => centreOnDish(true));
+  if (ui.viewDish) ui.viewDish.addEventListener("click", zoomToDish);
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || !selectedName) return;
     selectedName = "";
@@ -417,9 +440,11 @@
     direction.normalize();
     beam.position.copy(dish.position).addScaledVector(direction, length / 2);
     beam.quaternion.setFromUnitVectors(up, direction);
-    beam.scale.set(1, length, 1);
+    const width = camera.position.distanceTo(beam.position) / BEAM_SCALE_DISTANCE;
+    beam.scale.set(width, length, width);
     const phase = reduceMotion ? 0.5 : (Date.now() % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
     pulse.position.copy(dish.position).addScaledVector(direction, length * phase);
+    pulse.scale.setScalar(camera.position.distanceTo(pulse.position) / BEAM_SCALE_DISTANCE);
     placeTag(ui.tag, satellite, object.name);
   };
 
@@ -461,7 +486,11 @@
       view.lat += (target.lat - view.lat) * 0.08;
       view.lon += (target.lon - view.lon) * 0.08;
       view.zoom += (target.zoom - view.zoom) * 0.08;
-      if (Math.abs(target.zoom - view.zoom) < 0.002 && Math.abs(target.lat - view.lat) < 0.05) target = null;
+      view.focus += (target.focus - view.focus) * 0.08;
+      if (Math.abs(target.zoom - view.zoom) < 0.002 && Math.abs(target.lat - view.lat) < 0.05 && Math.abs(target.focus - view.focus) < 0.002) {
+        view = { ...target };
+        target = null;
+      }
     }
     placeCamera();
     if (now - lastPositions >= POSITION_UPDATE_MS) {

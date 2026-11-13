@@ -837,8 +837,42 @@ header {
   color: var(--label-dim);
 }
 
-.stage-under .range-button {
-  flex: none;
+.view-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: var(--panel);
+  border: 1px solid var(--control);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.icon-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-button:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.icon-button:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 1px;
 }
 
 .readout {

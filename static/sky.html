@@ -36,7 +36,14 @@
       </div>
       <div class="stage-under">
         <div class="stage-caption" id="globe-caption"></div>
-        <button type="button" class="range-button" id="globe-centre">Centre on dish</button>
+        <div class="view-buttons">
+          <button type="button" class="icon-button" id="globe-view-globe" title="Whole globe" aria-label="Show the whole globe">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 7.5h14M5 16.5h14"/></svg>
+          </button>
+          <button type="button" class="icon-button" id="globe-view-dish" title="Zoom to the dish" aria-label="Zoom in on the dish">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13.5l9-5.5 2.5 4-9 5.5z"/><path d="M10.5 15.5L12 21M8.5 21h7"/><path d="M15.5 5.5a3 3 0 0 1 3 3M16.5 2.5a6 6 0 0 1 5 5"/></svg>
+          </button>
+        </div>
       </div>
     </div>
     <section class="readout" id="readout">
