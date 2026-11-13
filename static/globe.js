@@ -11,6 +11,8 @@
   const IDLE_FRAME_MS = 100; // about 10 fps unless the view is moving
   const PULSE_FRAME_MS = 33; // about 30 fps while the beam pulse runs
   const PULSE_PERIOD_MS = 1400; // one trip from dish to satellite
+  const BEAM_RADIUS = 0.0011; // in Earth radii, about 7 km
+  const PULSE_RADIUS = 0.0028;
   const POSITION_UPDATE_MS = 100; // satellites move a few pixels a second; no need to recompute every frame
   const PICK_RADIUS_PX = 12; // how close a click has to land to a satellite
   const ORBIT_POINTS = 256;
@@ -255,9 +257,9 @@
     out.set(constellation.scene[i * 3], constellation.scene[i * 3 + 1], constellation.scene[i * 3 + 2]);
 
   const dish = makePoints(dotTexture(COLOURS.dish), 8);
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0022, 1, 8, 1, true), new THREE.MeshBasicMaterial({ color: amber }));
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(BEAM_RADIUS, BEAM_RADIUS, 1, 8, 1, true), new THREE.MeshBasicMaterial({ color: amber }));
   const servingMark = makePoints(dotTexture(COLOURS.serving, true), MARKER_PX);
-  const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.0045, 10, 8), new THREE.MeshBasicMaterial({ color: 0xfff1cc }));
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(PULSE_RADIUS, 10, 8), new THREE.MeshBasicMaterial({ color: 0xfff1cc }));
   const servingParts = [beam, pulse, servingMark];
   scene.add(beam, pulse);
 
