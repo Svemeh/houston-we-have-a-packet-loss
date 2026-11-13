@@ -207,7 +207,7 @@
     } else if (!serving.enabled) {
       setStatus("TRACKING OFF", "off");
       setText(ui.name, "—");
-      setText(ui.sub, "start Houston with -track-satellite to identify it");
+      setText(ui.sub, "satellite tracking is off (-track-satellite=false)");
     } else if (!slot) {
       setStatus("WAITING", "caution");
       setText(ui.name, "—");
