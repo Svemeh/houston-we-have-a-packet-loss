@@ -121,7 +121,6 @@
     snapshot = next;
     live.clear();
     if (observer && next.location_set) for (const object of next.objects || []) live.set(object.name, object);
-    if (renderer) rebuildUsable();
     updateReadout();
     markDirty();
   };
@@ -388,11 +387,9 @@
     return points;
   };
   const allCloud = makeCloud("#19e6ff", 5);
-  const usableCloud = makeCloud("#d4ff1f", 11);
 
   // Each satellite as a circle in its orbital plane, re-anchored to SGP4 every refresh.
   let constellation = null;
-  let usable = [];
   let selectedName = "";
   let lastPositions = 0;
 
@@ -425,7 +422,6 @@
     });
     allCloud.geometry.setAttribute("position", new THREE.BufferAttribute(next.scene, 3));
     constellation = next;
-    rebuildUsable();
     lastPositions = 0;
     markDirty();
   };
@@ -438,19 +434,6 @@
       console.warn("constellation fetch failed", error);
     }
   };
-
-  // Usable = above the service floor from the dish, as the snapshot says.
-  function rebuildUsable() {
-    usable = [];
-    if (constellation && snapshot) {
-      for (const object of snapshot.objects || []) {
-        const i = constellation.index.get(object.name);
-        if (object.in_cone && i !== undefined) usable.push(i);
-      }
-    }
-    usableCloud.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(usable.length * 3), 3));
-    lastPositions = 0;
-  }
 
   // Earth-fixed position of satellite i at time t, from its circular orbit.
   const satelliteEcef = (i, t, angle = null) => {
@@ -476,9 +459,6 @@
       c.scene[i * 3 + 2] = scratch.z;
     }
     allCloud.geometry.attributes.position.needsUpdate = true;
-    const positions = usableCloud.geometry.attributes.position;
-    usable.forEach((i, j) => positions.setXYZ(j, c.scene[i * 3], c.scene[i * 3 + 1], c.scene[i * 3 + 2]));
-    positions.needsUpdate = true;
   };
   const scenePosition = (i, out = new THREE.Vector3()) =>
     out.set(constellation.scene[i * 3], constellation.scene[i * 3 + 1], constellation.scene[i * 3 + 2]);
@@ -488,38 +468,6 @@
     new THREE.PointsMaterial({ map: glowTexture("#ffffff"), size: 14, sizeAttenuation: false, transparent: true, depthWrite: false }),
   );
   scene.add(dish);
-  const footprint = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: amber, transparent: true, opacity: 0.6 }));
-  scene.add(footprint);
-  let footprintKey = "";
-
-  // Ground circle under which a satellite at heightKm sits above the floor.
-  const updateFootprint = () => {
-    const objects = snapshot ? (snapshot.objects || []).filter((o) => o.in_cone) : [];
-    if (!observer || !objects.length) {
-      footprint.visible = false;
-      return null;
-    }
-    const heights = objects.map((o) => ecefToGeodetic(...lookToEcef(observer, o.az, o.el, o.range_km)).height).sort((a, b) => a - b);
-    const heightKm = Math.round(heights[Math.floor(heights.length / 2)] / 10) * 10;
-    const floor = snapshot.service_floor_deg;
-    const key = `${observer.lat},${observer.lon},${heightKm},${floor}`;
-    footprint.visible = true;
-    if (key !== footprintKey) {
-      footprintKey = key;
-      const r = SCENE_EARTH_RADIUS_KM;
-      const psi = Math.acos((r / (r + heightKm)) * Math.cos(floor * DEG)) - floor * DEG;
-      const lat = observer.lat * DEG, lon = observer.lon * DEG, ring = [];
-      for (let i = 0; i <= 96; i++) {
-        const bearing = (2 * Math.PI * i) / 96;
-        const lat2 = Math.asin(Math.sin(lat) * Math.cos(psi) + Math.cos(lat) * Math.sin(psi) * Math.cos(bearing));
-        const lon2 = lon + Math.atan2(Math.sin(bearing) * Math.sin(psi) * Math.cos(lat), Math.cos(psi) - Math.sin(lat) * Math.sin(lat2));
-        ring.push(sceneFromLatLon(lat2 / DEG, lon2 / DEG, 1.002));
-      }
-      footprint.geometry.dispose();
-      footprint.geometry = new THREE.BufferGeometry().setFromPoints(ring);
-    }
-    return { heightKm, floor };
-  };
 
   const beamCore = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 1, 12, 1, true),
     new THREE.MeshBasicMaterial({ color: amber, transparent: true, opacity: 0.95, depthWrite: false }));
@@ -741,9 +689,7 @@
       placeTag(ui.pickTag, scenePosition(constellation.index.get(selectedName)), selectedName);
     }
     updateServing();
-    const ring = updateFootprint();
-    const count = constellation ? `${constellation.names.length.toLocaleString("en-US")} SATELLITES · TRUE ALTITUDE` : "LOADING SATELLITES…";
-    setText(ui.caption, `${count}${ring ? ` · RING = ${ring.floor}° FLOOR AT ${ring.heightKm} KM` : ""}`);
+    setText(ui.caption, constellation ? `${constellation.names.length.toLocaleString("en-US")} SATELLITES · TRUE ALTITUDE` : "LOADING SATELLITES…");
     renderer.render(scene, camera);
   };
 
