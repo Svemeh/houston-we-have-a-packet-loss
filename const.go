@@ -22,7 +22,7 @@ const (
 	// Web UI: the dashboard
 	DefaultWebAddress = ":2101"
 	RouteIndex        = "/"
-	RouteOrbit        = "/orbit"
+	RouteSky          = "/sky"
 	RouteEvents       = "/events"
 	RouteLog          = "/log"
 	RouteHistory      = "/history"

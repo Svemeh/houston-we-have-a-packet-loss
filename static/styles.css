@@ -693,7 +693,7 @@ header {
 
 /* ---- Serving link and orbit view ----------------------------------------
    A 3D stage on the left and the serving-satellite readout on the right;
-   stacks when the card is narrow. The orbit page uses the same pieces. */
+   stacks when the card is narrow. The sky page uses the same pieces. */
 
 .scope.is-link {
   container-type: inline-size;
@@ -759,12 +759,28 @@ header {
   color: #bff8ff;
 }
 
-.stage-link {
+/* A link that looks like a button: dashboard to the sky page and back. */
+.nav-button {
+  padding: 5px 12px;
+  background: var(--panel);
+  border: 1px solid var(--control);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text);
   text-decoration: none;
+  white-space: nowrap;
 }
 
-.stage-link:hover {
+.nav-button:hover {
+  border-color: var(--amber);
   color: var(--amber);
+}
+
+.nav-button:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 1px;
 }
 
 .globe-pick {
@@ -964,37 +980,26 @@ header {
   }
 }
 
-/* The orbit page: the globe fills the window, the readout docks on the right. */
-.orbit-page {
+/* The sky page: the globe fills the window, the readout docks on the right. */
+.sky-page {
   display: flex;
   flex-direction: column;
   gap: 12px;
   height: 100vh;
 }
 
-.orbit-head {
+.sky-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 8px 20px;
 }
 
-.orbit-head .stage-hint {
+.sky-head .stage-hint {
   margin-left: auto;
 }
 
-.orbit-back {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--label);
-  text-decoration: none;
-}
-
-.orbit-back:hover {
-  color: var(--amber);
-}
-
-.orbit-layout {
+.sky-layout {
   flex: 1;
   min-height: 0;
   display: grid;
@@ -1002,11 +1007,11 @@ header {
   gap: 16px;
 }
 
-.orbit-layout .stage {
+.sky-layout .stage {
   min-height: 0;
 }
 
-.orbit-layout .readout {
+.sky-layout .readout {
   padding: 16px 18px;
   background: var(--panel-sunken);
   border: 1px solid var(--edge);
@@ -1014,17 +1019,17 @@ header {
 }
 
 @media (max-width: 900px) {
-  .orbit-page {
+  .sky-page {
     height: auto;
   }
-  .orbit-layout {
+  .sky-layout {
     grid-template-columns: 1fr;
   }
-  .orbit-layout .stage {
+  .sky-layout .stage {
     flex: none;
     height: 75vh;
   }
-  .orbit-head .stage-hint {
+  .sky-head .stage-hint {
     display: none;
   }
 }
