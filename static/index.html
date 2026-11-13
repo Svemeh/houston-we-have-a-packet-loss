@@ -6,12 +6,13 @@
   <title>Houston, We Have a Packet Loss</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' fill='%23f5b740'%3E%3Crect x='2' width='3' height='18'/%3E%3Crect x='13' width='3' height='18'/%3E%3Crect x='2' y='7.5' width='14' height='3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
+  <script src="/feed.js" defer></script>
   <script src="/dashboard.js" defer></script>
   <script src="/sky.js" defer></script>
   <script src="/obstruction.js" defer></script>
   <script src="/vendor/three.min.js" defer></script>
-  <script src="/vendor/topojson-client.min.js" defer></script>
-  <script src="/globe.js" defer></script>
+  <script src="/readout.js" defer></script>
+  <script src="/link.js" defer></script>
 </head>
 
 <body>
@@ -118,58 +119,55 @@
           <div class="scope-head"><span class="label">Machine-to-Internet Packet Loss</span><span class="scope-range-label" id="chart-range-machine-to-internet-loss"></span></div>
           <canvas id="chart-machine-to-internet-loss"></canvas>
         </div>
-        <div class="scope is-globe">
-          <div class="scope-head"><span class="label">Orbit View</span><span class="scope-range-label globe-hint">drag to turn · ctrl + scroll to zoom · click a satellite</span></div>
-          <div class="globe-layout">
-            <div class="globe-column">
-              <div class="globe-stage" id="globe-stage">
-                <canvas id="globe-canvas" aria-label="Earth with the dish, the satellites above it and a beam to the serving satellite"></canvas>
-                <div class="globe-tag" id="globe-tag" hidden></div>
-                <div class="globe-tag is-pick" id="globe-pick-tag" hidden></div>
-                <div class="globe-pick" id="globe-pick" hidden>
-                  <div class="globe-row">
-                    <span class="globe-pick-name" id="globe-pick-name">—</span>
-                    <button type="button" class="globe-pick-close" id="globe-pick-close" aria-label="Clear selection">×</button>
-                  </div>
-                  <div class="globe-pick-detail tabular-num" id="globe-pick-detail"></div>
-                </div>
+        <div class="scope is-link">
+          <div class="scope-head"><span class="label">Serving Link</span><a class="scope-range-label stage-link" href="/orbit">open orbit view ↗</a></div>
+          <div class="split-layout">
+            <div class="stage-column">
+              <div class="stage" id="link-stage">
+                <canvas id="link-canvas" aria-label="The dish with a beam to the satellite it is talking to"></canvas>
+                <div class="stage-tag is-serving" id="link-satellite-tag" hidden></div>
+                <div class="stage-tag is-dim" id="link-elevation-tag" hidden></div>
+                <div class="stage-tag" id="link-range-tag" hidden></div>
+                <div class="stage-tag is-dish" id="link-dish-tag" hidden></div>
+                <div class="stage-tag is-compass is-north" id="link-n-tag" hidden></div>
+                <div class="stage-tag is-compass" id="link-e-tag" hidden></div>
+                <div class="stage-tag is-compass" id="link-s-tag" hidden></div>
+                <div class="stage-tag is-compass" id="link-w-tag" hidden></div>
               </div>
-              <div class="globe-under">
-                <div class="globe-caption" id="globe-caption"></div>
-                <div class="globe-controls">
-                  <button type="button" class="range-button" id="globe-centre">Centre on dish</button>
-                </div>
+              <div class="stage-under">
+                <div class="stage-caption" id="link-caption"></div>
+                <div class="stage-caption" id="link-direction"></div>
               </div>
             </div>
-            <section class="globe-readout">
-              <div class="globe-row">
+            <section class="readout" id="readout">
+              <div class="readout-row">
                 <span class="label">Serving Satellite</span>
-                <span class="globe-pill" id="globe-status">—</span>
+                <span class="readout-pill" id="readout-status">—</span>
               </div>
               <div>
-                <div class="globe-name tabular-num" id="globe-name">—</div>
-                <div class="globe-sub" id="globe-sub">waiting for Houston</div>
+                <div class="readout-name tabular-num" id="readout-name">—</div>
+                <div class="readout-sub" id="readout-sub">waiting for Houston</div>
               </div>
-              <div class="globe-grid">
-                <div class="globe-cell"><span>Elevation</span><span class="tabular-num" id="globe-el">—</span></div>
-                <div class="globe-cell"><span>Azimuth</span><span class="tabular-num" id="globe-az">—</span></div>
-                <div class="globe-cell"><span>Range</span><span class="tabular-num" id="globe-range">—</span></div>
-                <div class="globe-cell"><span>Altitude</span><span class="tabular-num" id="globe-height">—</span></div>
-                <div class="globe-cell"><span>Arc Fit</span><span class="tabular-num" id="globe-fit">—</span></div>
-                <div class="globe-cell"><span>One-Way</span><span class="tabular-num" id="globe-one-way">—</span></div>
+              <div class="readout-grid">
+                <div class="readout-cell"><span>Elevation</span><span class="tabular-num" id="readout-el">—</span></div>
+                <div class="readout-cell"><span>Azimuth</span><span class="tabular-num" id="readout-az">—</span></div>
+                <div class="readout-cell"><span>Range</span><span class="tabular-num" id="readout-range">—</span></div>
+                <div class="readout-cell"><span>Altitude</span><span class="tabular-num" id="readout-height">—</span></div>
+                <div class="readout-cell"><span>Arc Fit</span><span class="tabular-num" id="readout-fit">—</span></div>
+                <div class="readout-cell"><span>One-Way</span><span class="tabular-num" id="readout-one-way">—</span></div>
               </div>
-              <div class="globe-slot">
-                <div class="globe-row">
-                  <span class="globe-small" id="globe-slot">SLOT</span>
-                  <span class="globe-small">NEXT HANDOVER IN <span class="globe-next tabular-num" id="globe-next">—</span></span>
+              <div class="readout-slot">
+                <div class="readout-row">
+                  <span class="readout-small" id="readout-slot">SLOT</span>
+                  <span class="readout-small">NEXT HANDOVER IN <span class="readout-next tabular-num" id="readout-next">—</span></span>
                 </div>
-                <div class="globe-bar"><i id="globe-bar"></i></div>
+                <div class="readout-bar"><i id="readout-bar"></i></div>
               </div>
-              <div class="globe-last" id="globe-last" hidden>
-                <span class="globe-small" id="globe-last-label">HANDOVER</span>
-                <span class="globe-last-text" id="globe-last-text">—</span>
+              <div class="readout-last" id="readout-last" hidden>
+                <span class="readout-small" id="readout-last-label">HANDOVER</span>
+                <span class="readout-last-text" id="readout-last-text">—</span>
               </div>
-              <div class="globe-foot tabular-num" id="globe-foot">—</div>
+              <div class="readout-foot tabular-num" id="readout-foot">—</div>
             </section>
           </div>
         </div>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbit View · Houston</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' fill='%23f5b740'%3E%3Crect x='2' width='3' height='18'/%3E%3Crect x='13' width='3' height='18'/%3E%3Crect x='2' y='7.5' width='14' height='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/feed.js" defer></script>
+  <script src="/vendor/three.min.js" defer></script>
+  <script src="/vendor/topojson-client.min.js" defer></script>
+  <script src="/readout.js" defer></script>
+  <script src="/globe.js" defer></script>
+</head>
+
+<body class="orbit-page">
+  <header class="orbit-head">
+    <a class="orbit-back" href="/">← Dashboard</a>
+    <span class="label">Orbit View</span>
+    <span class="scope-range-label stage-hint">drag to turn · ctrl + scroll to zoom · click a satellite</span>
+  </header>
+
+  <main class="orbit-layout">
+    <div class="stage-column">
+      <div class="stage" id="globe-stage">
+        <canvas id="globe-canvas" aria-label="Earth with every Starlink satellite, the dish and a beam to the serving satellite"></canvas>
+        <div class="stage-tag is-serving" id="globe-tag" hidden></div>
+        <div class="stage-tag is-pick" id="globe-pick-tag" hidden></div>
+        <div class="globe-pick" id="globe-pick" hidden>
+          <div class="readout-row">
+            <span class="globe-pick-name" id="globe-pick-name">—</span>
+            <button type="button" class="globe-pick-close" id="globe-pick-close" aria-label="Clear selection">×</button>
+          </div>
+          <div class="globe-pick-detail tabular-num" id="globe-pick-detail"></div>
+        </div>
+      </div>
+      <div class="stage-under">
+        <div class="stage-caption" id="globe-caption"></div>
+        <button type="button" class="range-button" id="globe-centre">Centre on dish</button>
+      </div>
+    </div>
+    <section class="readout" id="readout">
+      <div class="readout-row">
+        <span class="label">Serving Satellite</span>
+        <span class="readout-pill" id="readout-status">—</span>
+      </div>
+      <div>
+        <div class="readout-name tabular-num" id="readout-name">—</div>
+        <div class="readout-sub" id="readout-sub">waiting for Houston</div>
+      </div>
+      <div class="readout-grid">
+        <div class="readout-cell"><span>Elevation</span><span class="tabular-num" id="readout-el">—</span></div>
+        <div class="readout-cell"><span>Azimuth</span><span class="tabular-num" id="readout-az">—</span></div>
+        <div class="readout-cell"><span>Range</span><span class="tabular-num" id="readout-range">—</span></div>
+        <div class="readout-cell"><span>Altitude</span><span class="tabular-num" id="readout-height">—</span></div>
+        <div class="readout-cell"><span>Arc Fit</span><span class="tabular-num" id="readout-fit">—</span></div>
+        <div class="readout-cell"><span>One-Way</span><span class="tabular-num" id="readout-one-way">—</span></div>
+      </div>
+      <div class="readout-slot">
+        <div class="readout-row">
+          <span class="readout-small" id="readout-slot">SLOT</span>
+          <span class="readout-small">NEXT HANDOVER IN <span class="readout-next tabular-num" id="readout-next">—</span></span>
+        </div>
+        <div class="readout-bar"><i id="readout-bar"></i></div>
+      </div>
+      <div class="readout-last" id="readout-last" hidden>
+        <span class="readout-small" id="readout-last-label">HANDOVER</span>
+        <span class="readout-last-text" id="readout-last-text">—</span>
+      </div>
+      <div class="readout-foot tabular-num" id="readout-foot">—</div>
+    </section>
+  </main>
+</body>
+</html>

@@ -50,6 +50,9 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 
 	router := http.NewServeMux()
 	router.Handle(RouteIndex, http.FileServer(http.FS(staticRoot)))
+	router.HandleFunc(RouteOrbit, func(response http.ResponseWriter, request *http.Request) {
+		http.ServeFileFS(response, request, staticRoot, "orbit.html")
+	})
 
 	router.HandleFunc(RouteEvents, newSampleStreamHandler(sources.telemetryHub))
 	router.HandleFunc(RouteLog, newRawLogHandler(sources.telemetryLogPath))

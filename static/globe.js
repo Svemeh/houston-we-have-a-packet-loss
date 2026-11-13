@@ -6,13 +6,7 @@
   const NIGHT_URL = "/vendor/earth-night.jpg";
   const CONSTELLATION_URL = "/constellation";
   const CONSTELLATION_REFRESH_MS = 60000; // fresh SGP4 states every minute; circular orbits in between are off by well under 1 km
-  const SERVING_STALE_MS = 45000; // three slots without a result
-  const SLOT_SECONDS = 15;
-  const SLOT_BOUNDARY_OFFSET = 12; // handovers at :12/:27/:42/:57 UTC
   const SCENE_EARTH_RADIUS_KM = 6371; // the drawn sphere; altitude is scaled against it
-  const WGS84_A_KM = 6378.137;
-  const WGS84_E2 = 0.00669437999014;
-  const LIGHT_KM_PER_MS = 299.792458;
   const EARTH_ROTATION_RAD_S = 7.2921158553e-5;
   const IDLE_FRAME_MS = 100; // about 10 fps unless the view is moving
   const POSITION_UPDATE_MS = 100; // satellites move a few pixels a second; no need to recompute every frame
@@ -20,15 +14,6 @@
   const ORBIT_POINTS = 256;
   const GLOBE_FIT_RADIUS = 1.1; // Earth plus its glow, with a little margin, fits the panel
   const DEG = Math.PI / 180;
-  const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-  const STATUS_TEXT = {
-    ambiguous: ["NO CLEAR MATCH", "two satellites fit this slot's arc about equally"],
-    few_pixels: ["ARC TOO SHORT", "too few map cells this slot to match"],
-    no_location: ["NO LOCATION", "set your location in the Sky View card"],
-    no_elements: ["NO ELEMENTS", "waiting on satellite elements"],
-    unsupported_frame: ["UNSUPPORTED", "this dish's obstruction map can't be matched"],
-    error: ["NO ANSWER", "the dish did not answer this slot"],
-  };
 
   const stage = document.getElementById("globe-stage");
   const canvas = document.getElementById("globe-canvas");
@@ -43,214 +28,18 @@
     pickTag: document.getElementById("globe-pick-tag"),
     centre: document.getElementById("globe-centre"),
     caption: document.getElementById("globe-caption"),
-    status: document.getElementById("globe-status"),
-    name: document.getElementById("globe-name"),
-    sub: document.getElementById("globe-sub"),
-    el: document.getElementById("globe-el"),
-    az: document.getElementById("globe-az"),
-    range: document.getElementById("globe-range"),
-    height: document.getElementById("globe-height"),
-    fit: document.getElementById("globe-fit"),
-    oneWay: document.getElementById("globe-one-way"),
-    slot: document.getElementById("globe-slot"),
-    next: document.getElementById("globe-next"),
-    bar: document.getElementById("globe-bar"),
-    lastBlock: document.getElementById("globe-last"),
-    lastLabel: document.getElementById("globe-last-label"),
-    lastText: document.getElementById("globe-last-text"),
-    foot: document.getElementById("globe-foot"),
   };
   const setText = (element, text) => {
     if (element && element.textContent !== text) element.textContent = text;
   };
-  const pad = (n) => String(n).padStart(2, "0");
-
-  // ---- Geometry -----------------------------------------------------------
-  // The server gives az/el/range from a WGS84 observer; inverting that is exact.
-
-  const geodeticToEcef = (latDeg, lonDeg, heightKm) => {
-    const lat = latDeg * DEG, lon = lonDeg * DEG;
-    const n = WGS84_A_KM / Math.sqrt(1 - WGS84_E2 * Math.sin(lat) ** 2);
-    return [
-      (n + heightKm) * Math.cos(lat) * Math.cos(lon),
-      (n + heightKm) * Math.cos(lat) * Math.sin(lon),
-      (n * (1 - WGS84_E2) + heightKm) * Math.sin(lat),
-    ];
-  };
-
-  const lookToEcef = (observer, azDeg, elDeg, rangeKm) => {
-    const lat = observer.lat * DEG, lon = observer.lon * DEG, az = azDeg * DEG, el = elDeg * DEG;
-    const e = rangeKm * Math.cos(el) * Math.sin(az);
-    const n = rangeKm * Math.cos(el) * Math.cos(az);
-    const u = rangeKm * Math.sin(el);
-    const sLat = Math.sin(lat), cLat = Math.cos(lat), sLon = Math.sin(lon), cLon = Math.cos(lon);
-    return [
-      observer.ecef[0] - sLon * e - sLat * cLon * n + cLat * cLon * u,
-      observer.ecef[1] + cLon * e - sLat * sLon * n + cLat * sLon * u,
-      observer.ecef[2] + cLat * n + sLat * u,
-    ];
-  };
-
-  // Bowring's method; well under a metre at LEO heights.
-  const ecefToGeodetic = (x, y, z) => {
-    const a = WGS84_A_KM, b = a * Math.sqrt(1 - WGS84_E2), ep2 = (a * a - b * b) / (b * b);
-    const p = Math.hypot(x, y), theta = Math.atan2(z * a, p * b);
-    const lat = Math.atan2(z + ep2 * b * Math.sin(theta) ** 3, p - WGS84_E2 * a * Math.cos(theta) ** 3);
-    const n = a / Math.sqrt(1 - WGS84_E2 * Math.sin(lat) ** 2);
-    return { lat: lat / DEG, lon: Math.atan2(y, x) / DEG, height: p / Math.cos(lat) - n };
-  };
-
-  // ---- Shared state from sky.js ---------------------------------------------
 
   const shared = (window.houstonSky = window.houstonSky || {});
-  let snapshot = null;
-  let serving = null;
+  const { ecefToGeodetic } = shared.geo;
   let observer = null;
-  const live = new Map(); // snapshot objects by name: the dish's exact view, above its horizon
-  let slotHistory = [];
 
   const applyLocation = (location) => {
-    observer = location && location.location_set
-      ? { lat: location.latitude_deg, lon: location.longitude_deg, ecef: geodeticToEcef(location.latitude_deg, location.longitude_deg, 0) }
-      : null;
-    if (renderer) centreOnDish(false);
-    markDirty();
-  };
-
-  const applySnapshot = (next) => {
-    snapshot = next;
-    live.clear();
-    if (observer && next.location_set) for (const object of next.objects || []) live.set(object.name, object);
-    updateReadout();
-    markDirty();
-  };
-
-  const applyServing = (next) => {
-    serving = next;
-    const slot = next && next.enabled ? next.slot : null;
-    if (slot && (!slotHistory.length || slotHistory[slotHistory.length - 1].slot_start !== slot.slot_start)) {
-      slotHistory = [...slotHistory.slice(-1), slot];
-    }
-    updateReadout();
-    markDirty();
-  };
-
-  const currentSlot = () => {
-    const slot = serving && serving.enabled ? serving.slot : null;
-    if (!slot || Date.now() - Date.parse(slot.slot_start) > SERVING_STALE_MS) return null;
-    return slot;
-  };
-
-  // The beam only ever points at a matched satellite the dish can also see right now.
-  const servingObject = () => {
-    const slot = currentSlot();
-    if (!slot || slot.status !== "matched" || !slot.best) return null;
-    return live.get(slot.best.satellite) || null;
-  };
-
-  // ---- Readout --------------------------------------------------------------
-
-  const setStatus = (text, kind) => {
-    setText(ui.status, text);
-    if (ui.status) ui.status.className = `globe-pill ${kind ? `is-${kind}` : ""}`;
-  };
-
-  const clearValues = () => {
-    for (const key of ["el", "az", "range", "height", "fit", "oneWay"]) setText(ui[key], "—");
-  };
-
-  const slotLabel = (start) => {
-    const s = new Date(start).getUTCSeconds();
-    return `:${pad(s)} → :${pad((s + SLOT_SECONDS) % 60)}`;
-  };
-
-  const slotName = (slot) => (slot.status === "matched" && slot.best ? slot.best.satellite : (STATUS_TEXT[slot.status] || [slot.status])[0].toLowerCase());
-
-  const updateLastHandover = () => {
-    const [previous, latest] = slotHistory;
-    const consecutive = previous && latest && Date.parse(latest.slot_start) - Date.parse(previous.slot_start) === SLOT_SECONDS * 1000;
-    if (ui.lastBlock) ui.lastBlock.hidden = !consecutive || !currentSlot();
-    if (!consecutive) return;
-    setText(ui.lastLabel, `HANDOVER AT :${pad(new Date(latest.slot_start).getUTCSeconds())}`);
-    const same = previous.status === "matched" && latest.status === "matched" && previous.best.satellite === latest.best.satellite;
-    setText(ui.lastText, same ? `kept ${latest.best.satellite}` : `${slotName(previous)} → ${slotName(latest)}`);
-  };
-
-  // Ticks just after each wall-clock second, when the countdown text changes (handovers fall on whole seconds).
-  const startClock = () => {
-    updateClock();
-    setTimeout(startClock, 1005 - (Date.now() % 1000));
-  };
-
-  // The bar runs as one looping animation; each tick only nudges it back onto the wall clock.
-  let slotBar = null;
-  const updateClock = () => {
-    const into = ((Date.now() / 1000 - SLOT_BOUNDARY_OFFSET) % SLOT_SECONDS + SLOT_SECONDS) % SLOT_SECONDS;
-    setText(ui.next, `${Math.ceil(SLOT_SECONDS - into)} s`);
-    if (!ui.bar || !ui.bar.animate) return;
-    if (!slotBar) {
-      slotBar = ui.bar.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], { duration: SLOT_SECONDS * 1000, iterations: Infinity });
-    }
-    slotBar.currentTime = into * 1000;
-  };
-
-  function updateReadout() {
-    const slot = currentSlot();
-    const object = servingObject();
-    clearValues();
-    setText(ui.slot, slot ? `IDENTIFIED FOR SLOT ${slotLabel(slot.slot_start)}` : "SLOT");
-
-    if (!serving) {
-      setStatus("—", "");
-      setText(ui.name, "—");
-      setText(ui.sub, "waiting for Houston");
-    } else if (!serving.enabled) {
-      setStatus("TRACKING OFF", "off");
-      setText(ui.name, "—");
-      setText(ui.sub, "satellite tracking is off (-track-satellite=false)");
-    } else if (!slot) {
-      setStatus("WAITING", "caution");
-      setText(ui.name, "—");
-      setText(ui.sub, serving.slot ? "no result for the last three slots" : "waiting for the first slot to finish");
-    } else if (slot.status !== "matched" || !slot.best) {
-      const [pill, reason] = STATUS_TEXT[slot.status] || [slot.status.toUpperCase(), slot.status];
-      setStatus(pill, "caution");
-      setText(ui.name, "—");
-      setText(ui.sub, reason);
-    } else {
-      setStatus("● MATCHED", "matched");
-      setText(ui.name, slot.best.satellite);
-      setText(ui.fit, `${slot.best.fit_deg.toFixed(2)}°`);
-      if (object) {
-        const height = ecefToGeodetic(...lookToEcef(observer, object.az, object.el, object.range_km)).height;
-        setText(ui.sub, `NORAD ${slot.best.norad_id}`);
-        setText(ui.el, `${Math.round(object.el)}°`);
-        setText(ui.az, `${Math.round(object.az) % 360}° ${COMPASS[Math.round(object.az / 22.5) % 16]}`);
-        setText(ui.range, `${Math.round(object.range_km)} km`);
-        setText(ui.height, `${Math.round(height)} km`);
-        setText(ui.oneWay, `${(object.range_km / LIGHT_KM_PER_MS).toFixed(1)} ms`);
-      } else {
-        setText(ui.sub, `NORAD ${slot.best.norad_id} · not in the live sky right now`);
-      }
-    }
-
-    updateLastHandover();
-    updateClock();
-    updateFoot();
-  }
-
-  const updateFoot = () => {
-    if (!observer) {
-      setText(ui.foot, "no location set");
-      return;
-    }
-    const where = `DISH ${Math.abs(observer.lat).toFixed(2)}°${observer.lat >= 0 ? "N" : "S"} ${Math.abs(observer.lon).toFixed(2)}°${observer.lon >= 0 ? "E" : "W"}`;
-    if (!snapshot) {
-      setText(ui.foot, where);
-      return;
-    }
-    const above = (snapshot.objects || []).length;
-    setText(ui.foot, `${where} · ${snapshot.in_cone_count} above ${snapshot.service_floor_deg}° · ${above} above horizon`);
+    observer = location && location.location_set ? { lat: location.latitude_deg, lon: location.longitude_deg } : null;
+    centreOnDish(false);
   };
 
   // ---- Scene ----------------------------------------------------------------
@@ -271,16 +60,7 @@
     kick();
   }
 
-  if (!renderer) {
-    window.addEventListener("houston:sky", (event) => applySnapshot(event.detail));
-    window.addEventListener("houston:serving", (event) => applyServing(event.detail));
-    window.addEventListener("houston:location", (event) => applyLocation(event.detail));
-    if (shared.location) applyLocation(shared.location);
-    if (shared.sky) applySnapshot(shared.sky);
-    if (shared.serving) applyServing(shared.serving);
-    startClock();
-    return;
-  }
+  if (!renderer) return;
 
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setClearColor(0x000000, 0);
@@ -618,7 +398,7 @@
   const direction = new THREE.Vector3();
 
   const updateServing = () => {
-    const object = servingObject();
+    const object = shared.servingObject();
     const i = object && constellation ? constellation.index.get(object.name) : undefined;
     const show = Boolean(observer && i !== undefined);
     for (const part of servingParts) part.visible = show;
@@ -725,20 +505,16 @@
   }).observe(stage);
   document.addEventListener("visibilitychange", kick);
 
-  window.addEventListener("houston:sky", (event) => applySnapshot(event.detail));
-  window.addEventListener("houston:serving", (event) => applyServing(event.detail));
+  window.addEventListener("houston:sky", markDirty);
+  window.addEventListener("houston:serving", markDirty);
   window.addEventListener("houston:location", (event) => {
     const moved = !observer || !event.detail.location_set
       || observer.lat !== event.detail.latitude_deg || observer.lon !== event.detail.longitude_deg;
     if (moved) applyLocation(event.detail);
   });
   if (shared.location) applyLocation(shared.location);
-  if (shared.sky) applySnapshot(shared.sky);
-  if (shared.serving) applyServing(shared.serving);
   loadConstellation();
   setInterval(loadConstellation, CONSTELLATION_REFRESH_MS);
-  startClock();
   resize();
   placeCamera();
-  updateReadout();
 })();
