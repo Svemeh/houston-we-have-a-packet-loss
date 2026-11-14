@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"embed"
 	"encoding/json"
@@ -49,6 +50,9 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 
 	router := http.NewServeMux()
 	router.Handle(RouteIndex, http.FileServer(http.FS(staticRoot)))
+	router.HandleFunc(RouteSky, func(response http.ResponseWriter, request *http.Request) {
+		http.ServeFileFS(response, request, staticRoot, "sky.html")
+	})
 
 	router.HandleFunc(RouteEvents, newSampleStreamHandler(sources.telemetryHub))
 	router.HandleFunc(RouteLog, newRawLogHandler(sources.telemetryLogPath))
@@ -75,6 +79,7 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 	router.HandleFunc(RouteLocation, newLocationHandler(sources.tracker, sources.settingsPath))
 	router.HandleFunc(RouteServing, newServingHandler(sources.serving))
 	router.HandleFunc(RouteObstructionMap, newObstructionMapHandler(sources.obstruction))
+	router.HandleFunc(RouteConstellation, newConstellationHandler(sources.tracker))
 
 	server := &http.Server{Addr: listenAddress, Handler: router}
 
@@ -471,5 +476,23 @@ func newObstructionMapHandler(obstruction *ObstructionMapper) http.HandlerFunc {
 		response.Header().Set("Content-Type", "application/json")
 		response.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(response).Encode(payload)
+	}
+}
+
+// newConstellationHandler serves RouteConstellation, gzipped when the browser accepts it (~0.8 MB raw, ~0.3 MB gzipped).
+func newConstellationHandler(tracker *SkyTracker) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		payload := tracker.Constellation(time.Now())
+		response.Header().Set("Content-Type", "application/json")
+		response.Header().Set("Cache-Control", "no-store")
+		response.Header().Set("Vary", "Accept-Encoding")
+		if !strings.Contains(request.Header.Get("Accept-Encoding"), "gzip") {
+			_ = json.NewEncoder(response).Encode(payload)
+			return
+		}
+		response.Header().Set("Content-Encoding", "gzip")
+		compressed := gzip.NewWriter(response)
+		defer compressed.Close()
+		_ = json.NewEncoder(compressed).Encode(payload)
 	}
 }

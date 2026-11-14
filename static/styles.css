@@ -642,6 +642,10 @@ header {
   color: var(--label);
 }
 
+.serving-line[hidden] {
+  display: none;
+}
+
 .serving-label {
   text-transform: uppercase;
   color: var(--label-dim);
@@ -685,6 +689,405 @@ header {
 
 .sky-square {
   margin-bottom: 8px;
+}
+
+/* ---- Serving link and orbit view ----------------------------------------
+   A 3D stage on the left and the serving-satellite readout on the right;
+   stacks when the card is narrow. The sky page uses the same pieces. */
+
+.scope.is-link {
+  container-type: inline-size;
+}
+
+.split-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.stage-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 420px;
+  overflow: hidden;
+}
+
+.stage canvas,
+.scope .stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.stage canvas:active,
+.scope .stage canvas:active {
+  cursor: grabbing;
+}
+
+.stage.is-unavailable canvas,
+.scope .stage.is-unavailable canvas {
+  display: none;
+}
+
+.stage-tag {
+  position: absolute;
+  pointer-events: none;
+  transform: translate(14px, -50%);
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  text-shadow: 0 0 6px #000;
+}
+
+.stage-tag.is-serving {
+  transform: translate(-50%, -150%);
+  color: var(--amber);
+}
+
+.stage-tag.is-pick {
+  color: #ffffff;
+}
+
+/* A link that looks like a button: dashboard to the sky page and back. */
+.nav-button {
+  padding: 5px 12px;
+  background: var(--panel);
+  border: 1px solid var(--control);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.nav-button:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.nav-button:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.stage .globe-gimbal {
+  position: absolute;
+  inset: auto;
+  top: 6px;
+  right: 6px;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  cursor: grab;
+  touch-action: none;
+}
+
+.stage .globe-gimbal:active {
+  cursor: grabbing;
+}
+
+.globe-pick {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: 230px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  font-family: var(--mono);
+}
+
+.globe-pick[hidden] {
+  display: none;
+}
+
+.globe-pick-name {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.globe-pick-detail {
+  margin-top: 3px;
+  white-space: pre-line;
+  font-size: 10px;
+  color: var(--label);
+}
+
+.globe-pick-close {
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--label);
+  cursor: pointer;
+}
+
+.stage-under {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.stage-caption {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--label-dim);
+}
+
+.view-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: var(--panel);
+  border: 1px solid var(--control);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.icon-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-button:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.icon-button:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.readout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 6px 4px;
+  font-family: var(--mono);
+}
+
+.readout-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.readout-pill {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--label);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.readout-pill.is-matched {
+  color: var(--nominal);
+  border-color: color-mix(in srgb, var(--nominal) 45%, transparent);
+}
+
+.readout-pill.is-caution {
+  color: var(--caution);
+  border-color: var(--amber-dim);
+}
+
+.readout-name {
+  font-size: 26px;
+  letter-spacing: 0.02em;
+  color: var(--readout);
+  overflow-wrap: anywhere;
+}
+
+.readout-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--label);
+}
+
+.readout-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--edge);
+}
+
+.readout-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.readout-cell span:first-child {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+.readout-cell span:last-child {
+  font-size: 19px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.readout-slot,
+.readout-last {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--edge);
+}
+
+.readout-slot .readout-row {
+  flex-wrap: wrap;
+}
+
+.readout-small {
+  white-space: nowrap;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--label);
+}
+
+.readout-next {
+  color: var(--amber);
+}
+
+.readout-bar {
+  height: 6px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.readout-bar i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--amber);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.readout-last[hidden] {
+  display: none;
+}
+
+.readout-last-text {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.readout-foot {
+  margin-top: auto;
+  font-size: 11px;
+  color: var(--label-dim);
+}
+
+@container (max-width: 760px) {
+  .split-layout {
+    grid-template-columns: 1fr;
+  }
+  .split-layout .stage {
+    flex: none;
+    min-height: 0;
+    aspect-ratio: 1 / 0.9;
+  }
+}
+
+/* The sky page: the globe fills the window, the readout docks on the right. */
+.sky-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100vh;
+}
+
+.sky-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+}
+
+.sky-head .stage-hint {
+  margin-left: auto;
+}
+
+.sky-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 16px;
+}
+
+.sky-layout .stage {
+  min-height: 0;
+}
+
+.sky-layout .readout {
+  padding: 16px 18px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+}
+
+@media (max-width: 900px) {
+  .sky-page {
+    height: auto;
+  }
+  .sky-layout {
+    grid-template-columns: 1fr;
+  }
+  .sky-layout .stage {
+    flex: none;
+    height: 75vh;
+  }
+  .sky-head .stage-hint {
+    display: none;
+  }
 }
 
 /* ---- Location panel ----------------------------------------------------

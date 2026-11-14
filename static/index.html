@@ -4,11 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Houston, We Have a Packet Loss</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none' stroke='%23f5b740' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'%3E%3Crect x='12' y='11' width='8' height='10' rx='1' fill='%23f5b740'/%3E%3Crect x='1.5' y='10' width='8' height='12' rx='1'/%3E%3Crect x='22.5' y='10' width='8' height='12' rx='1'/%3E%3Cpath d='M9.5 16H12M20 16h2.5M16 11V6'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' fill='%23f5b740'%3E%3Crect x='2' width='3' height='18'/%3E%3Crect x='13' width='3' height='18'/%3E%3Crect x='2' y='7.5' width='14' height='3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
+  <script src="/feed.js" defer></script>
   <script src="/dashboard.js" defer></script>
   <script src="/sky.js" defer></script>
   <script src="/obstruction.js" defer></script>
+  <script src="/vendor/three.min.js" defer></script>
+  <script src="/readout.js" defer></script>
+  <script src="/link.js" defer></script>
 </head>
 
 <body>
@@ -114,6 +118,50 @@
         <div class="scope">
           <div class="scope-head"><span class="label">Machine-to-Internet Packet Loss</span><span class="scope-range-label" id="chart-range-machine-to-internet-loss"></span></div>
           <canvas id="chart-machine-to-internet-loss"></canvas>
+        </div>
+        <div class="scope is-link">
+          <div class="scope-head"><span class="label">Serving Link</span><a class="nav-button" href="/sky">Open sky view →</a></div>
+          <div class="split-layout">
+            <div class="stage-column">
+              <div class="stage" id="link-stage">
+                <canvas id="link-canvas" aria-label="The dish with a beam to the satellite it is talking to"></canvas>
+              </div>
+              <div class="stage-under">
+                <div class="stage-caption" id="link-caption"></div>
+                <div class="stage-caption" id="link-direction"></div>
+              </div>
+            </div>
+            <section class="readout" id="readout">
+              <div class="readout-row">
+                <span class="label">Serving Satellite</span>
+                <span class="readout-pill" id="readout-status">—</span>
+              </div>
+              <div>
+                <div class="readout-name tabular-num" id="readout-name">—</div>
+                <div class="readout-sub" id="readout-sub">waiting for Houston</div>
+              </div>
+              <div class="readout-grid">
+                <div class="readout-cell"><span>Elevation</span><span class="tabular-num" id="readout-el">—</span></div>
+                <div class="readout-cell"><span>Azimuth</span><span class="tabular-num" id="readout-az">—</span></div>
+                <div class="readout-cell"><span>Range</span><span class="tabular-num" id="readout-range">—</span></div>
+                <div class="readout-cell"><span>Altitude</span><span class="tabular-num" id="readout-height">—</span></div>
+                <div class="readout-cell"><span>Arc Fit</span><span class="tabular-num" id="readout-fit">—</span></div>
+                <div class="readout-cell"><span>One-Way</span><span class="tabular-num" id="readout-one-way">—</span></div>
+              </div>
+              <div class="readout-slot">
+                <div class="readout-row">
+                  <span class="readout-small" id="readout-slot">SLOT</span>
+                  <span class="readout-small">NEXT HANDOVER IN <span class="readout-next tabular-num" id="readout-next">—</span></span>
+                </div>
+                <div class="readout-bar"><i id="readout-bar"></i></div>
+              </div>
+              <div class="readout-last" id="readout-last" hidden>
+                <span class="readout-small" id="readout-last-label">HANDOVER</span>
+                <span class="readout-last-text" id="readout-last-text">—</span>
+              </div>
+              <div class="readout-foot tabular-num" id="readout-foot">—</div>
+            </section>
+          </div>
         </div>
       </div>
 

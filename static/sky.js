@@ -1,11 +1,7 @@
 (() => {
   "use strict";
 
-  const SKY_EVENTS_URL = "/skyevents";
   const LOCATION_URL = "/location";
-  const SERVING_URL = "/serving";
-  const SERVING_POLL_MS = 5000;
-  const SERVING_STALE_MS = 45000; // three slots without a result
   const SLOT_SECONDS = 15;
   const SLOT_BOUNDARY_OFFSET = 12; // handovers at :12/:27/:42/:57 UTC
   const SERVING_STATUS_TEXT = {
@@ -58,6 +54,9 @@
 
   let latestSnapshot = null;
   let latestServing = null;
+
+  // feed.js owns the stream and the polls; every panel reads from it.
+  const shared = (window.houstonSky = window.houstonSky || {});
 
   const readVariable = (name, fallback) => {
     const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -220,11 +219,7 @@
     drawing.restore();
   };
 
-  const servingSlot = () => {
-    const slot = latestServing && latestServing.enabled ? latestServing.slot : null;
-    if (!slot || Date.now() - Date.parse(slot.slot_start) > SERVING_STALE_MS) return null;
-    return slot;
-  };
+  const servingSlot = () => shared.currentSlot();
 
   const drawServing = (objects, centreX, centreY, radius) => {
     const slot = servingSlot();
@@ -287,10 +282,7 @@
 
 
   const applySnapshot = (snapshot) => {
-    // Set from another tab, or cleared by a restart: ask the server again.
-    if (latestSnapshot && latestSnapshot.location_set !== snapshot.location_set) loadLocation();
     latestSnapshot = snapshot;
-    window.dispatchEvent(new CustomEvent("houston:sky", { detail: snapshot }));
 
     const aboveHorizon = (snapshot.objects || []).length;
     setText(elements.inCone, snapshot.in_cone_count);
@@ -353,16 +345,6 @@
     showLocationPanel(!location.location_set);
   };
 
-  const loadLocation = async () => {
-    if (!elements.locationPanel) return;
-    try {
-      const response = await fetch(LOCATION_URL, { cache: "no-store" });
-      if (response.ok) applyLocation(await response.json());
-    } catch (error) {
-      console.error("could not read location", error);
-    }
-  };
-
   const saveLocation = async (latitude, longitude) => {
     setLocationStatus("Saving…");
     try {
@@ -375,7 +357,7 @@
         setLocationStatus((await response.text()).trim() || `Failed (${response.status})`, true);
         return;
       }
-      applyLocation(await response.json());
+      shared.publish("location", await response.json());
       setLocationStatus("");
     } catch (error) {
       setLocationStatus("Could not reach Houston", true);
@@ -449,31 +431,6 @@
     }
   };
 
-  const loadServing = async () => {
-    try {
-      const response = await fetch(SERVING_URL, { cache: "no-store" });
-      if (!response.ok) return;
-      latestServing = await response.json();
-      render();
-    } catch (error) {
-      console.warn("serving poll failed", error);
-    }
-  };
-
-  // ---- Stream ----------------------------------------------------------
-
-  const connect = () => {
-    const stream = new EventSource(SKY_EVENTS_URL);
-
-    stream.onmessage = (event) => {
-      try {
-        applySnapshot(JSON.parse(event.data));
-      } catch (error) {
-        console.error("bad sky snapshot", error);
-      }
-    };
-  };
-
   window.addEventListener("resize", () => {
     resizeCanvas();
     render();
@@ -482,9 +439,15 @@
   resizeCanvas();
   render();
   setUpLocationPanel();
-  loadLocation();
-  connect();
-  loadServing();
-  setInterval(loadServing, SERVING_POLL_MS);
+  window.addEventListener("houston:sky", (event) => applySnapshot(event.detail));
+  window.addEventListener("houston:location", (event) => applyLocation(event.detail));
+  window.addEventListener("houston:serving", (event) => {
+    latestServing = event.detail;
+    render();
+    updateServingReadout();
+  });
+  if (shared.location) applyLocation(shared.location);
+  if (shared.sky) applySnapshot(shared.sky);
+  if (shared.serving) latestServing = shared.serving;
   setInterval(updateServingReadout, 1000);
 })();

@@ -1,0 +1,677 @@
+(() => {
+  "use strict";
+
+  const WORLD_URL = "/vendor/world-50m.json";
+  const DAY_URL = "/vendor/earth-day.jpg";
+  const NIGHT_URL = "/vendor/earth-night.jpg";
+  const CONSTELLATION_URL = "/constellation";
+  const CONSTELLATION_REFRESH_MS = 60000; // fresh SGP4 states every minute; circular orbits in between are off by well under 1 km
+  const SCENE_EARTH_RADIUS_KM = 6371; // the drawn sphere; altitude is scaled against it
+  const EARTH_ROTATION_RAD_S = 7.2921158553e-5;
+  const IDLE_FRAME_MS = 100; // about 10 fps unless the view is moving
+  const PULSE_FRAME_MS = 33; // about 30 fps while the beam pulse runs
+  const PULSE_PERIOD_MS = 1400; // one trip from dish to satellite
+  const BEAM_RADIUS = 0.0011; // in Earth radii, about 7 km
+  const PULSE_RADIUS = 0.0028;
+  const POSITION_UPDATE_MS = 100; // satellites move a few pixels a second; no need to recompute every frame
+  const PICK_RADIUS_PX = 12; // how close a click has to land to a satellite
+  const ORBIT_POINTS = 256;
+  const DISH_VIEW = { tilt: 30, range: 0.47 }; // dish view start: camera 30° above the dish's horizon, 0.47 Earth radii (~3,000 km) away
+  const ORBIT_RANGE_LIMITS = [0.08, 4]; // camera distance from the orbited ground point, in Earth radii
+  const ORBIT_TILT_LIMITS = [3, 89]; // degrees above that point's horizon
+  const GIMBAL_PX = 84;
+  const GIMBAL_COLOURS = { rim: "rgba(138, 151, 166, 0.55)", ring: "rgba(223, 231, 239, 0.75)", north: "#f5b740" };
+  const BEAM_SCALE_DISTANCE = 2.4; // camera distance at which the beam is drawn at BEAM_RADIUS; it keeps its on-screen width when zoomed
+  const GLOBE_FIT_RADIUS = 1.1; // Earth plus its glow, with a little margin, fits the panel
+  const SATELLITE_DOT_PX = 3.5;
+  const MARKER_PX = 18; // the ringed dot on the serving and the picked satellite
+  const COLOURS = { satellite: "#19e6ff", serving: "#f5b740", selected: "#ffffff", dish: "#ffffff" };
+  const DEG = Math.PI / 180;
+
+  const stage = document.getElementById("globe-stage");
+  const canvas = document.getElementById("globe-canvas");
+  if (!stage || !canvas) return;
+
+  const ui = {
+    tag: document.getElementById("globe-tag"),
+    pick: document.getElementById("globe-pick"),
+    pickName: document.getElementById("globe-pick-name"),
+    pickDetail: document.getElementById("globe-pick-detail"),
+    pickClose: document.getElementById("globe-pick-close"),
+    pickTag: document.getElementById("globe-pick-tag"),
+    viewGlobe: document.getElementById("globe-view-globe"),
+    viewDish: document.getElementById("globe-view-dish"),
+    caption: document.getElementById("globe-caption"),
+  };
+  const setText = (element, text) => {
+    if (element && element.textContent !== text) element.textContent = text;
+  };
+
+  const shared = (window.houstonSky = window.houstonSky || {});
+  const { ecefToGeodetic } = shared.geo;
+  let observer = null;
+
+  const applyLocation = (location) => {
+    observer = location && location.location_set ? { lat: location.latitude_deg, lon: location.longitude_deg } : null;
+    centreOnDish(false);
+  };
+
+  // ---- Scene ----------------------------------------------------------------
+
+  let renderer = null;
+  try {
+    if (!window.THREE) throw new Error("three.js did not load");
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  } catch (error) {
+    console.warn("globe disabled", error);
+    stage.classList.add("is-unavailable");
+    setText(ui.caption, "3D VIEW NEEDS WEBGL");
+  }
+
+  const dirtyState = { dirty: true };
+  function markDirty() {
+    dirtyState.dirty = true;
+    kick();
+  }
+
+  if (!renderer) return;
+
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0x000000, 0);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 200);
+  const amber = new THREE.Color(0xf5b740);
+  const up = new THREE.Vector3(0, 1, 0);
+
+  // Same layout as three's SphereGeometry UVs: lon 0 on +x, lon 90 on -z.
+  const sceneFromLatLon = (latDeg, lonDeg, radius, out = new THREE.Vector3()) => {
+    const lat = latDeg * DEG, lon = lonDeg * DEG;
+    return out.set(radius * Math.cos(lat) * Math.cos(lon), radius * Math.sin(lat), -radius * Math.cos(lat) * Math.sin(lon));
+  };
+  const sceneFromEcef = (x, y, z, out) => {
+    const g = ecefToGeodetic(x, y, z);
+    return sceneFromLatLon(g.lat, g.lon, 1 + g.height / SCENE_EARTH_RADIUS_KM, out);
+  };
+
+  // Rough solar position; only drives the day/night shading.
+  const sunDirection = (ms) => {
+    const date = new Date(ms);
+    const day = (ms - Date.UTC(date.getUTCFullYear(), 0, 0)) / 86400000;
+    const declination = -23.44 * Math.cos(((2 * Math.PI) / 365) * (day + 10));
+    const hours = date.getUTCHours() + date.getUTCMinutes() / 60;
+    return sceneFromLatLon(declination, -(hours - 12) * 15, 1).normalize();
+  };
+
+  // NASA Blue Marble by day, Black Marble city lights by night, soft terminator.
+  const earthMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      dayT: { value: null },
+      nightT: { value: null },
+      sun: { value: new THREE.Vector3(1, 0, 0) },
+      ready: { value: 0 },
+    },
+    vertexShader:
+      "varying vec2 vUv; varying vec3 vN; void main(){ vUv=uv; vN=normalize((modelMatrix*vec4(normal,0.0)).xyz); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
+    fragmentShader:
+      "uniform sampler2D dayT; uniform sampler2D nightT; uniform vec3 sun; uniform float ready; varying vec2 vUv; varying vec3 vN;" +
+      "void main(){ float d=dot(normalize(vN),sun); float k=smoothstep(-0.12,0.16,d);" +
+      " vec3 day=texture2D(dayT,vUv).rgb; vec3 night=texture2D(nightT,vUv).rgb;" +
+      " vec3 lit=day*(0.35+1.0*max(d,0.0)); vec3 dark=day*0.12+night*vec3(1.0,0.82,0.55)*1.3;" +
+      " vec3 c=mix(vec3(0.03,0.08,0.16),mix(dark,lit,k),ready); gl_FragColor=vec4(c,1.0); }",
+  });
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(1, 128, 96), earthMaterial));
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.035, 96, 64), new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    blending: THREE.AdditiveBlending,
+    transparent: true,
+    depthWrite: false,
+    vertexShader: "varying vec3 vN; void main(){ vN=normalize(normalMatrix*normal); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
+    fragmentShader: "varying vec3 vN; void main(){ float i=pow(max(0.0,0.66+dot(vN,vec3(0.0,0.0,1.0))),5.0); gl_FragColor=vec4(0.32,0.58,1.0,1.0)*i*0.55; }",
+  })));
+
+  const coastAndBorders = (world) => {
+    const group = new THREE.Group();
+    for (const [filter, opacity] of [[(a, b) => a === b, 0.28], [(a, b) => a !== b, 0.2]]) {
+      const points = [];
+      for (const line of topojson.mesh(world, world.objects.countries, filter).coordinates) {
+        for (let i = 1; i < line.length; i++) {
+          points.push(sceneFromLatLon(line[i - 1][1], line[i - 1][0], 1.0006), sceneFromLatLon(line[i][1], line[i][0], 1.0006));
+        }
+      }
+      group.add(new THREE.LineSegments(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity, depthWrite: false }),
+      ));
+    }
+    return group;
+  };
+
+  const loadTexture = (url) => new Promise((resolve, reject) => new THREE.TextureLoader().load(url, resolve, undefined, reject));
+  Promise.all([fetch(WORLD_URL).then((response) => response.json()), loadTexture(DAY_URL), loadTexture(NIGHT_URL)])
+    .then(([world, day, night]) => {
+      for (const texture of [day, night]) texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      earthMaterial.uniforms.dayT.value = day;
+      earthMaterial.uniforms.nightT.value = night;
+      earthMaterial.uniforms.ready.value = 1;
+      scene.add(coastAndBorders(world));
+      markDirty();
+    })
+    .catch((error) => console.error("could not load the globe map", error));
+
+  // ---- Satellites -------------------------------------------------------------
+
+  // A crisp dot; with ring it becomes the marker for the serving or the picked satellite.
+  const dotTexture = (colour, ring = false) => {
+    const dot = document.createElement("canvas");
+    dot.width = dot.height = 64;
+    const ctx = dot.getContext("2d");
+    ctx.fillStyle = ctx.strokeStyle = colour;
+    ctx.beginPath();
+    ctx.arc(32, 32, ring ? 11 : 24, 0, 2 * Math.PI);
+    ctx.fill();
+    if (ring) {
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(32, 32, 27, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+    return new THREE.CanvasTexture(dot);
+  };
+  const makePoints = (texture, size) => {
+    const points = new THREE.Points(
+      new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(3), 3)),
+      new THREE.PointsMaterial({ map: texture, size, sizeAttenuation: false, transparent: true, depthWrite: false }),
+    );
+    points.frustumCulled = false;
+    scene.add(points);
+    return points;
+  };
+  const allCloud = makePoints(dotTexture(COLOURS.satellite), SATELLITE_DOT_PX);
+
+  // Each satellite as a circle in its orbital plane, re-anchored to SGP4 every refresh.
+  let constellation = null;
+  let selectedName = "";
+  let lastPositions = 0;
+
+  const applyConstellation = (payload) => {
+    const rows = payload.satellites || [];
+    const n = rows.length;
+    const next = {
+      t0: Date.parse(payload.timestamp),
+      theta0: payload.theta_g_rad,
+      names: new Array(n),
+      ids: new Int32Array(n),
+      radius: new Float64Array(n),
+      rate: new Float64Array(n),
+      u1: new Float64Array(n * 3),
+      u2: new Float64Array(n * 3),
+      index: new Map(),
+      scene: new Float32Array(n * 3),
+    };
+    rows.forEach(([name, id, x, y, z, vx, vy, vz], i) => {
+      const r = Math.hypot(x, y, z);
+      const hx = y * vz - z * vy, hy = z * vx - x * vz, hz = x * vy - y * vx, h = Math.hypot(hx, hy, hz);
+      next.names[i] = name;
+      next.ids[i] = id;
+      next.radius[i] = r;
+      next.rate[i] = h / (r * r);
+      next.u1.set([x / r, y / r, z / r], i * 3);
+      const ax = hy * z - hz * y, ay = hz * x - hx * z, az = hx * y - hy * x, a = Math.hypot(ax, ay, az);
+      next.u2.set([ax / a, ay / a, az / a], i * 3);
+      next.index.set(name, i);
+    });
+    allCloud.geometry.setAttribute("position", new THREE.BufferAttribute(next.scene, 3));
+    constellation = next;
+    lastPositions = 0;
+    markDirty();
+  };
+
+  const loadConstellation = async () => {
+    try {
+      const response = await fetch(CONSTELLATION_URL, { cache: "no-store" });
+      if (response.ok) applyConstellation(await response.json());
+    } catch (error) {
+      console.warn("constellation fetch failed", error);
+    }
+  };
+
+  // Earth-fixed position of satellite i at time t, from its circular orbit.
+  const satelliteEcef = (i, t, angle = null) => {
+    const c = constellation;
+    const dt = (t - c.t0) / 1000;
+    const a = angle === null ? c.rate[i] * dt : angle;
+    const cos = Math.cos(a), sin = Math.sin(a), r = c.radius[i], k = i * 3;
+    const X = r * (c.u1[k] * cos + c.u2[k] * sin);
+    const Y = r * (c.u1[k + 1] * cos + c.u2[k + 1] * sin);
+    const Z = r * (c.u1[k + 2] * cos + c.u2[k + 2] * sin);
+    const theta = c.theta0 + EARTH_ROTATION_RAD_S * dt;
+    return [X * Math.cos(theta) + Y * Math.sin(theta), -X * Math.sin(theta) + Y * Math.cos(theta), Z];
+  };
+
+  const scratch = new THREE.Vector3();
+  const updatePositions = (t) => {
+    if (!constellation) return;
+    const c = constellation;
+    for (let i = 0; i < c.names.length; i++) {
+      sceneFromEcef(...satelliteEcef(i, t), scratch);
+      c.scene[i * 3] = scratch.x;
+      c.scene[i * 3 + 1] = scratch.y;
+      c.scene[i * 3 + 2] = scratch.z;
+    }
+    allCloud.geometry.attributes.position.needsUpdate = true;
+  };
+  const scenePosition = (i, out = new THREE.Vector3()) =>
+    out.set(constellation.scene[i * 3], constellation.scene[i * 3 + 1], constellation.scene[i * 3 + 2]);
+
+  const dish = makePoints(dotTexture(COLOURS.dish), 8);
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(BEAM_RADIUS, BEAM_RADIUS, 1, 8, 1, true), new THREE.MeshBasicMaterial({ color: amber }));
+  const servingMark = makePoints(dotTexture(COLOURS.serving, true), MARKER_PX);
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(PULSE_RADIUS, 10, 8), new THREE.MeshBasicMaterial({ color: 0xfff1cc }));
+  const servingParts = [beam, pulse, servingMark];
+  scene.add(beam, pulse);
+
+  const selectedMark = makePoints(dotTexture(COLOURS.selected, true), MARKER_PX);
+  const orbit = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: COLOURS.selected }));
+  orbit.frustumCulled = false;
+  scene.add(orbit);
+
+  // ---- Camera and input -----------------------------------------------------
+
+  // Two camera rigs, blended by focus: 0 orbits the Earth's centre (lat/lon/zoom),
+  // 1 orbits a ground point, the pivot (heading = compass direction from the pivot to the camera, tilt, range).
+  let view = { lat: 20, lon: 10, zoom: 1, focus: 0, pivotLat: 0, pivotLon: 0, heading: 180, tilt: DISH_VIEW.tilt, range: DISH_VIEW.range };
+  let target = null;
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const moveTo = (next, animate) => {
+    next = { ...view, ...next };
+    if (animate && !reduceMotion) target = next;
+    else {
+      view = next;
+      target = null;
+    }
+    markDirty();
+  };
+
+  const globeOverDish = () => ({ lat: Math.max(-80, Math.min(80, observer.lat - 22 * Math.sign(observer.lat || 1))), lon: observer.lon + 2, zoom: 1 });
+
+  // Whole globe, seen from the equator side of the dish.
+  function centreOnDish(animate) {
+    if (!observer) return;
+    moveTo({ ...globeOverDish(), focus: 0 }, animate);
+  }
+
+  // Close up on the dish, from the equator side so the beam stands up against the ground.
+  const zoomToDish = () => {
+    if (!observer) return;
+    if (view.focus < 0.5) Object.assign(view, { pivotLat: observer.lat, pivotLon: observer.lon });
+    moveTo({ ...globeOverDish(), focus: 1, pivotLat: observer.lat, pivotLon: observer.lon, heading: observer.lat >= 0 ? 180 : 0, tilt: DISH_VIEW.tilt, range: DISH_VIEW.range }, true);
+  };
+
+  // Swaps the globe rig for an identical pivot rig straight above the panel centre, so it can tilt.
+  const pivotHere = () => {
+    if (view.focus >= 0.5) return;
+    target = null;
+    Object.assign(view, { focus: 1, pivotLat: view.lat, pivotLon: view.lon, heading: 180, tilt: ORBIT_TILT_LIMITS[1], range: cameraDistance() - 1 });
+  };
+
+  // Keep the camera outside the satellite shell when it looks at the Earth's centre.
+  const MIN_DISTANCE = 1.25 + 600 / SCENE_EARTH_RADIUS_KM;
+
+  // Distance at which the whole globe fits the narrower side of the panel; zoom 1 is that.
+  const fitDistance = () => {
+    const half = (camera.fov / 2) * DEG;
+    return GLOBE_FIT_RADIUS / Math.sin(Math.min(half, Math.atan(Math.tan(half) * camera.aspect)));
+  };
+  const cameraDistance = () => Math.max(MIN_DISTANCE, fitDistance() * view.zoom);
+  const clampZoom = (zoom) => Math.min(2, Math.max(MIN_DISTANCE / fitDistance(), zoom));
+  const clamp = (value, [low, high]) => Math.min(high, Math.max(low, value));
+
+  const north = new THREE.Vector3(0, 1, 0);
+  const dishPoint = new THREE.Vector3(), dishUp = new THREE.Vector3(), dishEast = new THREE.Vector3(), dishNorth = new THREE.Vector3();
+  const globePosition = new THREE.Vector3(), dishPosition = new THREE.Vector3(), lookPoint = new THREE.Vector3();
+  const placeCamera = () => {
+    sceneFromLatLon(view.lat, view.lon, cameraDistance(), globePosition);
+    if (view.focus <= 0) {
+      camera.position.copy(globePosition);
+      camera.up.copy(north);
+      camera.lookAt(0, 0, 0);
+      return;
+    }
+    sceneFromLatLon(view.pivotLat, view.pivotLon, 1, dishPoint);
+    dishUp.copy(dishPoint).normalize();
+    dishEast.crossVectors(north, dishUp).normalize();
+    dishNorth.crossVectors(dishUp, dishEast);
+    const h = view.heading * DEG, t = view.tilt * DEG;
+    dishPosition.copy(dishPoint)
+      .addScaledVector(dishEast, view.range * Math.cos(t) * Math.sin(h))
+      .addScaledVector(dishNorth, view.range * Math.cos(t) * Math.cos(h))
+      .addScaledVector(dishUp, view.range * Math.sin(t));
+    camera.position.lerpVectors(globePosition, dishPosition, view.focus);
+    camera.up.lerpVectors(north, dishUp, view.focus).normalize();
+    camera.lookAt(lookPoint.copy(dishPoint).multiplyScalar(view.focus));
+  };
+
+  // Turns the camera around what it is looking at: the pivot, else the Earth.
+  const orbitBy = (dx, dy) => {
+    target = null;
+    if (view.focus >= 0.5) {
+      view.heading = (view.heading + dx * 0.4 + 360) % 360;
+      view.tilt = clamp(view.tilt + dy * 0.3, ORBIT_TILT_LIMITS);
+    } else {
+      const k = (0.25 * (cameraDistance() - 1)) / 2;
+      view.lon -= dx * k;
+      view.lat = Math.max(-80, Math.min(80, view.lat + dy * k));
+    }
+    markDirty();
+  };
+
+  // True when the Earth sits between the camera and the point.
+  const behindEarth = (point) => {
+    const toPoint = point.clone().sub(camera.position);
+    const distance = toPoint.length();
+    toPoint.normalize();
+    const b = camera.position.dot(toPoint), c = camera.position.lengthSq() - 1, disc = b * b - c;
+    return disc > 0 && -b - Math.sqrt(disc) < distance;
+  };
+
+  const placeTag = (tag, point, text) => {
+    const projected = point.clone().project(camera);
+    const rect = stage.getBoundingClientRect();
+    tag.hidden = behindEarth(point) || projected.z > 1;
+    tag.style.left = `${((projected.x + 1) / 2) * rect.width}px`;
+    tag.style.top = `${((1 - projected.y) / 2) * rect.height}px`;
+    setText(tag, text);
+  };
+
+  const pick = (clientX, clientY) => {
+    if (!constellation) return;
+    const rect = stage.getBoundingClientRect();
+    const point = new THREE.Vector3();
+    let best = -1, bestDistance = PICK_RADIUS_PX;
+    for (let i = 0; i < constellation.names.length; i++) {
+      scenePosition(i, point).project(camera);
+      if (point.z > 1) continue;
+      const dx = ((point.x + 1) / 2) * rect.width + rect.left - clientX;
+      const dy = ((1 - point.y) / 2) * rect.height + rect.top - clientY;
+      const distance = Math.hypot(dx, dy);
+      if (distance < bestDistance && !behindEarth(scenePosition(i))) {
+        best = i;
+        bestDistance = distance;
+      }
+    }
+    selectedName = best >= 0 ? constellation.names[best] : "";
+    markDirty();
+  };
+
+  const zoomBy = (factor) => {
+    target = null;
+    if (view.focus >= 0.5) view.range = clamp(view.range * factor, ORBIT_RANGE_LIMITS);
+    else view.zoom = clampZoom(view.zoom * factor);
+    markDirty();
+  };
+
+  // ---- Gimbal ---------------------------------------------------------------
+  // A small trackball in the corner: drag it to turn the camera around what it looks at.
+  const gimbal = document.getElementById("globe-gimbal");
+  const gimbalContext = gimbal ? gimbal.getContext("2d") : null;
+  if (gimbal) {
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    gimbal.width = gimbal.height = GIMBAL_PX * ratio;
+    gimbalContext.scale(ratio, ratio);
+    let last = null;
+    gimbal.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      gimbal.setPointerCapture(event.pointerId);
+      pivotHere();
+      last = { x: event.clientX, y: event.clientY };
+    });
+    gimbal.addEventListener("pointermove", (event) => {
+      if (!last) return;
+      orbitBy((event.clientX - last.x) * 1.5, (event.clientY - last.y) * 1.5);
+      last = { x: event.clientX, y: event.clientY };
+    });
+    const stop = () => (last = null);
+    gimbal.addEventListener("pointerup", stop);
+    gimbal.addEventListener("pointercancel", stop);
+    gimbal.addEventListener("dblclick", () => {
+      pivotHere();
+      moveTo({ heading: 180, tilt: ORBIT_TILT_LIMITS[1] }, true);
+    });
+  }
+
+  // Draws the gimbal from the camera's current heading and tilt.
+  const drawGimbal = () => {
+    if (!gimbalContext) return;
+    const g = gimbalContext, c = GIMBAL_PX / 2, r = c - 12;
+    const dishMode = view.focus >= 0.5;
+    const facing = dishMode ? (view.heading + 180) % 360 : 0;
+    const tilt = dishMode ? view.tilt : 90;
+    g.clearRect(0, 0, GIMBAL_PX, GIMBAL_PX);
+    g.lineWidth = 1.2;
+    g.strokeStyle = GIMBAL_COLOURS.rim;
+    g.beginPath();
+    g.arc(c, c, r, 0, 2 * Math.PI);
+    g.stroke();
+    // The ground ring, flattened by how steeply the camera looks down.
+    g.strokeStyle = GIMBAL_COLOURS.ring;
+    g.beginPath();
+    g.ellipse(c, c, r, Math.max(1.5, r * Math.sin(tilt * DEG)), 0, 0, 2 * Math.PI);
+    g.stroke();
+    // North on that ring, as the camera sees it.
+    const a = (0 - facing) * DEG;
+    const nx = c + Math.sin(a) * r, ny = c - Math.cos(a) * r * Math.sin(tilt * DEG);
+    g.fillStyle = GIMBAL_COLOURS.north;
+    g.beginPath();
+    g.arc(nx, ny, 3.2, 0, 2 * Math.PI);
+    g.fill();
+    g.font = "600 10px ui-monospace, SF Mono, Menlo, Consolas, monospace";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    const lx = c + Math.sin(a) * (r + 7), ly = c - Math.cos(a) * (r * Math.sin(tilt * DEG) + 7);
+    g.fillText("N", lx, ly);
+    // The up axis.
+    g.strokeStyle = GIMBAL_COLOURS.ring;
+    g.beginPath();
+    g.moveTo(c, c);
+    g.lineTo(c, c - r * Math.cos(tilt * DEG));
+    g.stroke();
+    g.fillStyle = GIMBAL_COLOURS.ring;
+    g.beginPath();
+    g.arc(c, c, 2.2, 0, 2 * Math.PI);
+    g.fill();
+  };
+
+  const pointers = new Map();
+  let lastPinch = 0;
+  let pressed = null;
+  canvas.addEventListener("pointerdown", (event) => {
+    canvas.setPointerCapture(event.pointerId);
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    pressed = pointers.size === 1 ? { x: event.clientX, y: event.clientY } : null;
+    target = null;
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    const previous = pointers.get(event.pointerId);
+    if (!previous) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const distance = Math.hypot(a.x - b.x, a.y - b.y);
+      if (lastPinch) zoomBy(lastPinch / distance);
+      lastPinch = distance;
+      markDirty();
+    } else {
+      orbitBy(event.clientX - previous.x, event.clientY - previous.y);
+    }
+  });
+  const release = (event) => {
+    pointers.delete(event.pointerId);
+    lastPinch = 0;
+    if (event.type === "pointerup" && pressed && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < 5) {
+      pick(event.clientX, event.clientY);
+    }
+    pressed = null;
+  };
+  canvas.addEventListener("pointerup", release);
+  canvas.addEventListener("pointercancel", release);
+  // Plain scrolling keeps scrolling the page; ctrl/⌘ + scroll (and trackpad pinch) zooms.
+  canvas.addEventListener("wheel", (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    zoomBy(Math.exp(event.deltaY * 0.003));
+  }, { passive: false });
+
+  if (ui.viewGlobe) ui.viewGlobe.addEventListener("click", () => centreOnDish(true));
+  if (ui.viewDish) ui.viewDish.addEventListener("click", zoomToDish);
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !selectedName) return;
+    selectedName = "";
+    markDirty();
+  });
+  if (ui.pickClose) {
+    ui.pickClose.addEventListener("click", () => {
+      selectedName = "";
+      markDirty();
+    });
+  }
+
+  // ---- Frame ----------------------------------------------------------------
+
+  const direction = new THREE.Vector3();
+
+  const updateServing = () => {
+    const object = shared.servingObject();
+    const i = object && constellation ? constellation.index.get(object.name) : undefined;
+    const show = Boolean(observer && i !== undefined);
+    for (const part of servingParts) part.visible = show;
+    if (!show) {
+      ui.tag.hidden = true;
+      return;
+    }
+    const satellite = scenePosition(i);
+    servingMark.position.copy(satellite);
+    direction.subVectors(satellite, dish.position);
+    const length = direction.length();
+    direction.normalize();
+    beam.position.copy(dish.position).addScaledVector(direction, length / 2);
+    beam.quaternion.setFromUnitVectors(up, direction);
+    const width = camera.position.distanceTo(beam.position) / BEAM_SCALE_DISTANCE;
+    beam.scale.set(width, length, width);
+    const phase = reduceMotion ? 0.5 : (Date.now() % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
+    pulse.position.copy(dish.position).addScaledVector(direction, length * phase);
+    pulse.scale.setScalar(camera.position.distanceTo(pulse.position) / BEAM_SCALE_DISTANCE);
+    placeTag(ui.tag, satellite, object.name);
+  };
+
+  const updateSelection = (t) => {
+    const i = constellation && selectedName ? constellation.index.get(selectedName) : undefined;
+    const show = i !== undefined;
+    selectedMark.visible = orbit.visible = show;
+    if (ui.pick) ui.pick.hidden = !show;
+    if (!show) {
+      if (ui.pickTag) ui.pickTag.hidden = true;
+      return;
+    }
+    const c = constellation;
+    const satellite = scenePosition(i);
+    selectedMark.position.copy(satellite);
+    const ring = [];
+    for (let k = 0; k <= ORBIT_POINTS; k++) {
+      ring.push(sceneFromEcef(...satelliteEcef(i, t, (2 * Math.PI * k) / ORBIT_POINTS), new THREE.Vector3()));
+    }
+    orbit.geometry.dispose();
+    orbit.geometry = new THREE.BufferGeometry().setFromPoints(ring);
+
+    const k = i * 3;
+    const normalZ = c.u1[k] * c.u2[k + 1] - c.u1[k + 1] * c.u2[k];
+    const inclination = Math.acos(Math.max(-1, Math.min(1, normalZ))) / DEG;
+    const height = ecefToGeodetic(...satelliteEcef(i, t)).height;
+    const periodMin = (2 * Math.PI) / c.rate[i] / 60;
+    setText(ui.pickName, c.names[i]);
+    setText(ui.pickDetail, `NORAD ${c.ids[i]} · ${Math.round(height)} km\n${inclination.toFixed(1)}° incl · ${periodMin.toFixed(1)} min orbit`);
+    if (ui.pickTag) placeTag(ui.pickTag, satellite, c.names[i]);
+  };
+
+  const draw = (now) => {
+    const t = Date.now();
+    earthMaterial.uniforms.sun.value.copy(sunDirection(t));
+    if (observer) sceneFromLatLon(observer.lat, observer.lon, 1.0015, dish.position);
+    dish.visible = Boolean(observer);
+    if (target) {
+      view.lat += (target.lat - view.lat) * 0.08;
+      view.lon += (target.lon - view.lon) * 0.08;
+      view.zoom += (target.zoom - view.zoom) * 0.08;
+      view.focus += (target.focus - view.focus) * 0.08;
+      const turn = ((target.heading - view.heading + 540) % 360) - 180;
+      view.heading = (view.heading + turn * 0.08 + 360) % 360;
+      view.tilt += (target.tilt - view.tilt) * 0.08;
+      view.range += (target.range - view.range) * 0.08;
+      view.pivotLat += (target.pivotLat - view.pivotLat) * 0.08;
+      view.pivotLon += (((target.pivotLon - view.pivotLon + 540) % 360) - 180) * 0.08;
+      if (Math.abs(target.zoom - view.zoom) < 0.002 && Math.abs(target.lat - view.lat) < 0.05 && Math.abs(target.focus - view.focus) < 0.002
+        && Math.abs(turn) < 0.1 && Math.abs(target.tilt - view.tilt) < 0.05 && Math.abs(target.range - view.range) < 0.001
+        && Math.abs(target.pivotLat - view.pivotLat) < 0.01 && Math.abs(((target.pivotLon - view.pivotLon + 540) % 360) - 180) < 0.01) {
+        view = { ...target };
+        target = null;
+      }
+    }
+    placeCamera();
+    drawGimbal();
+    if (now - lastPositions >= POSITION_UPDATE_MS) {
+      lastPositions = now;
+      updatePositions(t);
+      updateSelection(t);
+    } else if (selectedName && ui.pickTag && constellation && constellation.index.has(selectedName)) {
+      placeTag(ui.pickTag, scenePosition(constellation.index.get(selectedName)), selectedName);
+    }
+    updateServing();
+    setText(ui.caption, constellation ? `${constellation.names.length.toLocaleString("en-US")} SATELLITES · TRUE ALTITUDE` : "LOADING SATELLITES…");
+    renderer.render(scene, camera);
+  };
+
+  const resize = () => {
+    const rect = stage.getBoundingClientRect();
+    renderer.setSize(rect.width, rect.height, false);
+    camera.aspect = rect.width / Math.max(1, rect.height);
+    camera.updateProjectionMatrix();
+    markDirty();
+  };
+
+  let onScreen = true;
+  let frameRequest = 0;
+  let lastFrame = 0;
+  const loop = (now) => {
+    frameRequest = 0;
+    if (!onScreen || document.hidden) return;
+    if (dirtyState.dirty || target || pointers.size || now - lastFrame >= (pulse.visible && !reduceMotion ? PULSE_FRAME_MS : IDLE_FRAME_MS)) {
+      dirtyState.dirty = false;
+      lastFrame = now;
+      draw(now);
+    }
+    frameRequest = requestAnimationFrame(loop);
+  };
+  function kick() {
+    if (renderer && !frameRequest) frameRequest = requestAnimationFrame(loop);
+  }
+
+  new ResizeObserver(resize).observe(stage);
+  new IntersectionObserver((entries) => {
+    onScreen = entries[entries.length - 1].isIntersecting;
+    kick();
+  }).observe(stage);
+  document.addEventListener("visibilitychange", kick);
+
+  window.addEventListener("houston:sky", markDirty);
+  window.addEventListener("houston:serving", markDirty);
+  window.addEventListener("houston:location", (event) => {
+    const moved = !observer || !event.detail.location_set
+      || observer.lat !== event.detail.latitude_deg || observer.lon !== event.detail.longitude_deg;
+    if (moved) applyLocation(event.detail);
+  });
+  if (shared.location) applyLocation(shared.location);
+  loadConstellation();
+  setInterval(loadConstellation, CONSTELLATION_REFRESH_MS);
+  resize();
+  placeCamera();
+})();

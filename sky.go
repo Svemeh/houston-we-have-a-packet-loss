@@ -668,6 +668,41 @@ const (
 	wgs84EccentricitySquared = 0.00669437999014
 )
 
+// ConstellationSnapshot is every tracked satellite's TEME state at one instant, for the orbit view.
+type ConstellationSnapshot struct {
+	Timestamp  time.Time `json:"timestamp"`
+	ThetaGRad  float64   `json:"theta_g_rad"` // Earth rotation angle at Timestamp, TEME → Earth-fixed
+	Satellites [][]any   `json:"satellites"`  // [name, norad_id, x, y, z, vx, vy, vz] in km and km/s
+}
+
+// Constellation propagates every tracked satellite to now (whole seconds, as SGP4 here only takes those).
+func (tracker *SkyTracker) Constellation(now time.Time) ConstellationSnapshot {
+	tracker.mutex.RLock()
+	elements := tracker.elements
+	tracker.mutex.RUnlock()
+
+	utc := now.UTC().Truncate(time.Second)
+	year, month, day := utc.Date()
+	hour, minute, second := utc.Clock()
+	snapshot := ConstellationSnapshot{
+		Timestamp:  utc,
+		ThetaGRad:  satellite.ThetaG_JD(satellite.JDay(year, int(month), day, hour, minute, second)),
+		Satellites: make([][]any, 0, len(elements)),
+	}
+	for _, tracked := range elements {
+		position, velocity := satellite.Propagate(tracked.propagator, year, int(month), day, hour, minute, second)
+		if math.IsNaN(position.X) || math.IsNaN(velocity.X) {
+			continue
+		}
+		snapshot.Satellites = append(snapshot.Satellites, []any{
+			tracked.name, tracked.noradID,
+			roundTo(position.X, 1), roundTo(position.Y, 1), roundTo(position.Z, 1),
+			roundTo(velocity.X, 4), roundTo(velocity.Y, 4), roundTo(velocity.Z, 4),
+		})
+	}
+	return snapshot
+}
+
 // lookFrom gives azimuth, elevation and range from an observer on the WGS84 ellipsoid (go-satellite's ECIToLookAngles uses a sphere).
 func lookFrom(position satellite.Vector3, observer Observer, julianDay float64) (azimuthDeg, elevationDeg, rangeKm float64) {
 	siderealAngle := satellite.ThetaG_JD(julianDay)
