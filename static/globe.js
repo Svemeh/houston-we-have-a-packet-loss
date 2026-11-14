@@ -17,8 +17,8 @@
   const PICK_RADIUS_PX = 12; // how close a click has to land to a satellite
   const ORBIT_POINTS = 256;
   const DISH_VIEW = { tilt: 30, range: 0.47 }; // dish view start: camera 30° above the dish's horizon, 0.47 Earth radii (~3,000 km) away
-  const DISH_RANGE_LIMITS = [0.08, 1.5]; // in Earth radii
-  const DISH_TILT_LIMITS = [3, 89]; // degrees above the dish's horizon
+  const ORBIT_RANGE_LIMITS = [0.08, 4]; // camera distance from the orbited ground point, in Earth radii
+  const ORBIT_TILT_LIMITS = [3, 89]; // degrees above that point's horizon
   const GIMBAL_PX = 84;
   const GIMBAL_COLOURS = { rim: "rgba(138, 151, 166, 0.55)", ring: "rgba(223, 231, 239, 0.75)", north: "#f5b740" };
   const BEAM_SCALE_DISTANCE = 2.4; // camera distance at which the beam is drawn at BEAM_RADIUS; it keeps its on-screen width when zoomed
@@ -278,8 +278,8 @@
   // ---- Camera and input -----------------------------------------------------
 
   // Two camera rigs, blended by focus: 0 orbits the Earth's centre (lat/lon/zoom),
-  // 1 orbits the dish (heading = compass direction from the dish to the camera, tilt, range).
-  let view = { lat: 20, lon: 10, zoom: 1, focus: 0, heading: 180, tilt: DISH_VIEW.tilt, range: DISH_VIEW.range };
+  // 1 orbits a ground point, the pivot (heading = compass direction from the pivot to the camera, tilt, range).
+  let view = { lat: 20, lon: 10, zoom: 1, focus: 0, pivotLat: 0, pivotLon: 0, heading: 180, tilt: DISH_VIEW.tilt, range: DISH_VIEW.range };
   let target = null;
   const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -304,7 +304,15 @@
   // Close up on the dish, from the equator side so the beam stands up against the ground.
   const zoomToDish = () => {
     if (!observer) return;
-    moveTo({ ...globeOverDish(), focus: 1, heading: observer.lat >= 0 ? 180 : 0, tilt: DISH_VIEW.tilt, range: DISH_VIEW.range }, true);
+    if (view.focus < 0.5) Object.assign(view, { pivotLat: observer.lat, pivotLon: observer.lon });
+    moveTo({ ...globeOverDish(), focus: 1, pivotLat: observer.lat, pivotLon: observer.lon, heading: observer.lat >= 0 ? 180 : 0, tilt: DISH_VIEW.tilt, range: DISH_VIEW.range }, true);
+  };
+
+  // Swaps the globe rig for an identical pivot rig straight above the panel centre, so it can tilt.
+  const pivotHere = () => {
+    if (view.focus >= 0.5) return;
+    target = null;
+    Object.assign(view, { focus: 1, pivotLat: view.lat, pivotLon: view.lon, heading: 180, tilt: ORBIT_TILT_LIMITS[1], range: cameraDistance() - 1 });
   };
 
   // Keep the camera outside the satellite shell when it looks at the Earth's centre.
@@ -324,13 +332,13 @@
   const globePosition = new THREE.Vector3(), dishPosition = new THREE.Vector3(), lookPoint = new THREE.Vector3();
   const placeCamera = () => {
     sceneFromLatLon(view.lat, view.lon, cameraDistance(), globePosition);
-    if (!observer || view.focus <= 0) {
+    if (view.focus <= 0) {
       camera.position.copy(globePosition);
       camera.up.copy(north);
       camera.lookAt(0, 0, 0);
       return;
     }
-    sceneFromLatLon(observer.lat, observer.lon, 1, dishPoint);
+    sceneFromLatLon(view.pivotLat, view.pivotLon, 1, dishPoint);
     dishUp.copy(dishPoint).normalize();
     dishEast.crossVectors(north, dishUp).normalize();
     dishNorth.crossVectors(dishUp, dishEast);
@@ -344,12 +352,12 @@
     camera.lookAt(lookPoint.copy(dishPoint).multiplyScalar(view.focus));
   };
 
-  // Turns the camera around what it is looking at: the dish in the dish view, else the Earth.
+  // Turns the camera around what it is looking at: the pivot, else the Earth.
   const orbitBy = (dx, dy) => {
     target = null;
     if (view.focus >= 0.5) {
       view.heading = (view.heading + dx * 0.4 + 360) % 360;
-      view.tilt = clamp(view.tilt + dy * 0.3, DISH_TILT_LIMITS);
+      view.tilt = clamp(view.tilt + dy * 0.3, ORBIT_TILT_LIMITS);
     } else {
       const k = (0.25 * (cameraDistance() - 1)) / 2;
       view.lon -= dx * k;
@@ -398,7 +406,7 @@
 
   const zoomBy = (factor) => {
     target = null;
-    if (view.focus >= 0.5) view.range = clamp(view.range * factor, DISH_RANGE_LIMITS);
+    if (view.focus >= 0.5) view.range = clamp(view.range * factor, ORBIT_RANGE_LIMITS);
     else view.zoom = clampZoom(view.zoom * factor);
     markDirty();
   };
@@ -413,7 +421,9 @@
     gimbalContext.scale(ratio, ratio);
     let last = null;
     gimbal.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
       gimbal.setPointerCapture(event.pointerId);
+      pivotHere();
       last = { x: event.clientX, y: event.clientY };
     });
     gimbal.addEventListener("pointermove", (event) => {
@@ -425,8 +435,8 @@
     gimbal.addEventListener("pointerup", stop);
     gimbal.addEventListener("pointercancel", stop);
     gimbal.addEventListener("dblclick", () => {
-      if (view.focus >= 0.5) moveTo({ heading: observer && observer.lat < 0 ? 0 : 180, tilt: DISH_VIEW.tilt }, true);
-      else centreOnDish(true);
+      pivotHere();
+      moveTo({ heading: 180, tilt: ORBIT_TILT_LIMITS[1] }, true);
     });
   }
 
@@ -436,7 +446,7 @@
     const g = gimbalContext, c = GIMBAL_PX / 2, r = c - 12;
     const dishMode = view.focus >= 0.5;
     const facing = dishMode ? (view.heading + 180) % 360 : 0;
-    const tilt = dishMode ? view.tilt : 30;
+    const tilt = dishMode ? view.tilt : 90;
     g.clearRect(0, 0, GIMBAL_PX, GIMBAL_PX);
     g.lineWidth = 1.2;
     g.strokeStyle = GIMBAL_COLOURS.rim;
@@ -597,8 +607,11 @@
       view.heading = (view.heading + turn * 0.08 + 360) % 360;
       view.tilt += (target.tilt - view.tilt) * 0.08;
       view.range += (target.range - view.range) * 0.08;
+      view.pivotLat += (target.pivotLat - view.pivotLat) * 0.08;
+      view.pivotLon += (((target.pivotLon - view.pivotLon + 540) % 360) - 180) * 0.08;
       if (Math.abs(target.zoom - view.zoom) < 0.002 && Math.abs(target.lat - view.lat) < 0.05 && Math.abs(target.focus - view.focus) < 0.002
-        && Math.abs(turn) < 0.1 && Math.abs(target.tilt - view.tilt) < 0.05 && Math.abs(target.range - view.range) < 0.001) {
+        && Math.abs(turn) < 0.1 && Math.abs(target.tilt - view.tilt) < 0.05 && Math.abs(target.range - view.range) < 0.001
+        && Math.abs(target.pivotLat - view.pivotLat) < 0.01 && Math.abs(((target.pivotLon - view.pivotLon + 540) % 360) - 180) < 0.01) {
         view = { ...target };
         target = null;
       }
