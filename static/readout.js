@@ -54,11 +54,18 @@
   let slotBar = null;
   const updateClock = () => {
     const into = ((Date.now() / 1000 - SLOT_BOUNDARY_OFFSET) % SLOT_SECONDS + SLOT_SECONDS) % SLOT_SECONDS;
-    setText(ui.next, `${Math.ceil(SLOT_SECONDS - into)} s`);
+    const waiting = Boolean(shared.sky && shared.sky.tracked_count === 0);
+    setText(ui.next, waiting ? "—" : `${Math.ceil(SLOT_SECONDS - into)} s`);
     if (!ui.bar || !ui.bar.animate) return;
     if (!slotBar) {
       slotBar = ui.bar.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], { duration: SLOT_SECONDS * 1000, iterations: Infinity });
     }
+    if (waiting) {
+      slotBar.pause();
+      slotBar.currentTime = 0;
+      return;
+    }
+    if (slotBar.playState === "paused") slotBar.play();
     slotBar.currentTime = into * 1000;
   };
 
