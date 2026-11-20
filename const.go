@@ -81,8 +81,7 @@ const (
 	ServingFloorPercentile = 0.001 // floor is this low percentile, so a few bad matches can't drag it down
 
 	PingInterval = 1 * time.Second
-	// PingTimeout is shorter than PingInterval so a lost echo can't stretch a hop round past the next tick
-	PingTimeout = 800 * time.Millisecond
+	PingTimeout  = 800 * time.Millisecond
 
 	// /pingevents and /pinghistory serve HopEndTarget's echoes from the hop pinger.
 	RoutePingEvents  = "/pingevents"
