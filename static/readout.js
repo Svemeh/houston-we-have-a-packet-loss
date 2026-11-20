@@ -10,7 +10,7 @@
     stale_elements: ["STALE ELEMENTS", (slot) => `satellite elements are ${slot.elements_age_h} h old; Celestrak refresh failing`],
     few_pixels: ["ARC TOO SHORT", "too few map cells this slot to match"],
     no_location: ["NO LOCATION", "set your location in the Sky View card"],
-    no_elements: ["NO ELEMENTS", "waiting on satellite elements"],
+    no_elements: ["NO ELEMENTS", "waiting on celestrak for satellite elements"],
     unsupported_frame: ["UNSUPPORTED", "this dish's obstruction map can't be matched"],
     error: ["NO ANSWER", "the dish did not answer this slot"],
   };
@@ -79,6 +79,10 @@
     const sky = shared.sky;
     if (!sky) {
       setText(ui.foot, where);
+      return;
+    }
+    if (sky.tracked_count === 0) {
+      setText(ui.foot, `${where} · waiting on celestrak`);
       return;
     }
     setText(ui.foot, `${where} · ${sky.in_cone_count} above ${sky.service_floor_deg}° · ${(sky.objects || []).length} above horizon`);
