@@ -7,6 +7,7 @@
   const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
   const STATUS_TEXT = {
     ambiguous: ["NO CLEAR MATCH", "two satellites fit this slot's arc about equally"],
+    stale_elements: ["STALE ELEMENTS", (slot) => `satellite elements are ${slot.elements_age_h} h old; Celestrak refresh failing`],
     few_pixels: ["ARC TOO SHORT", "too few map cells this slot to match"],
     no_location: ["NO LOCATION", "set your location in the Sky View card"],
     no_elements: ["NO ELEMENTS", "waiting on satellite elements"],
@@ -107,7 +108,7 @@
       const [pill, reason] = STATUS_TEXT[slot.status] || [slot.status.toUpperCase(), slot.status];
       setStatus(pill, "caution");
       setText(ui.name, "—");
-      setText(ui.sub, reason);
+      setText(ui.sub, typeof reason === "function" ? reason(slot) : reason);
     } else {
       setStatus("● MATCHED", "matched");
       setText(ui.name, slot.best.satellite);

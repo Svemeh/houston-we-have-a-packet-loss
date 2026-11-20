@@ -6,6 +6,7 @@
   const SLOT_BOUNDARY_OFFSET = 12; // handovers at :12/:27/:42/:57 UTC
   const SERVING_STATUS_TEXT = {
     ambiguous: "no clear match this slot",
+    stale_elements: "elements too old to match",
     few_pixels: "arc too short this slot",
     no_location: "set your location",
     no_elements: "waiting on satellite elements",

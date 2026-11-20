@@ -153,6 +153,7 @@ const (
 	ServingMinTimeOffsetS           = -3  // SpaceX elements put satellites within ±1 s; a wider search lets satellites from the same launch train compete
 	ServingMaxTimeOffsetS           = 3
 	ServingCandidateMinElevationDeg = 5.0
+	ServingMaxElementAge            = 24 * time.Hour
 	DefaultServingLogPath           = DataDir + "/serving.jsonl"
 
 	// Own obstruction map (-track-satellite): every slot's traced cells merged, since the dish's own map is cleared each slot.

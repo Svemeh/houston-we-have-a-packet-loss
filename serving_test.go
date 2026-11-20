@@ -262,3 +262,49 @@ func TestServingHandler(t *testing.T) {
 		t.Errorf("latest slot: %+v", payload)
 	}
 }
+
+func TestClassifySlotStaleElements(t *testing.T) {
+	candidates := testCandidates(t)
+	moment := time.Date(2026, 10, 24, 8, 0, 0, 0, time.UTC)
+	observer := observerUnder(candidates[0].propagator, moment)
+	old := ServingMaxElementAge + 71*time.Hour
+
+	best, runnerUp := matchArc(syntheticArc(candidates[0].propagator, observer, moment, 2*time.Second), candidates, observer)
+	if status := classifySlot(best, runnerUp, old); status != ServingMatched {
+		t.Errorf("old elements, matching arc: %s, want %s", status, ServingMatched)
+	}
+
+	ambiguousBest, ambiguousRunnerUp := &ServingCandidate{FitDeg: 0.8}, &ServingCandidate{FitDeg: 1.5}
+	if status := classifySlot(ambiguousBest, ambiguousRunnerUp, old); status != ServingStaleElements {
+		t.Errorf("old elements, ambiguous arc: %s, want %s", status, ServingStaleElements)
+	}
+	if status := classifySlot(ambiguousBest, ambiguousRunnerUp, time.Hour); status != ServingAmbiguous {
+		t.Errorf("fresh elements, ambiguous arc: %s, want %s", status, ServingAmbiguous)
+	}
+	if status := classifySlot(nil, nil, -1); status != ServingNoElements {
+		t.Errorf("no elements: %s, want %s", status, ServingNoElements)
+	}
+}
+
+func TestObserveSlotStaleElements(t *testing.T) {
+	candidates := testCandidates(t)
+	start := time.Date(2026, 10, 24, 8, 0, 0, 0, time.UTC)
+	sky := NewSkyTracker(observerUnder(candidates[0].propagator, start), LocationFromSettings)
+
+	traced := blankMap(obstructionFrameEarth)
+	for col := 70; col < 80; col++ {
+		traced.SNR[40*123+col] = 1
+	}
+
+	sky.storeElements(candidates, len(candidates), time.Now().Add(-95*time.Hour))
+	slot, _ := testServingTracker(&fakeMapSource{reads: []ObstructionMap{traced}}, sky, start).observeSlot(context.Background(), start)
+	if slot.Status != ServingStaleElements || slot.ElementsAgeH != 95 || len(slot.Arc) != 10 {
+		t.Errorf("95 h old elements: %+v", slot)
+	}
+
+	sky.storeElements(candidates, len(candidates), time.Now())
+	slot, _ = testServingTracker(&fakeMapSource{reads: []ObstructionMap{traced}}, sky, start).observeSlot(context.Background(), start)
+	if slot.Status != ServingAmbiguous || slot.ElementsAgeH != 0 {
+		t.Errorf("fresh elements: %+v", slot)
+	}
+}
