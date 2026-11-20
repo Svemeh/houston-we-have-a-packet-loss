@@ -22,7 +22,7 @@ Three days of data (~253k one-second rounds) from a Gen 3 Standard dish:
 | Finding | Evidence |
 |---|---|
 | **The LAN is clean.** | Loss to router 0.003 %, to dish 0.004 %, vs 0.19 % to `1.1.1.1`. |
-| **Satellite handovers cause a large share of loss.** | Starlink reassigns satellites every 15 s. Loss is **10× higher** at one fixed second of that cycle — 198 of 485 lost seconds (≈40 %) land there. The dish's own drop counter shows the same 15 s rhythm, independently. |
+| **Satellite handovers cause a large share of loss.** | Starlink reschedules every 15 s (at :12/:27/:42/:57), whether or not the serving satellite changes; it stays the same about half the time. Loss is **10× higher** at one fixed second of that cycle — 198 of 485 lost seconds (≈40 %) land there. The dish's own drop counter shows the same 15 s rhythm, independently. |
 | **Latency spikes, not average loss, break games.** | p50 39 ms, p99 106 ms, max 571 ms, jitter p99 55 ms. A second that is lost or over 120 ms happens ~27 times an hour. |
 | **The dish under-reports.** | It logged 29 outages in 3 days; only 25 of the 485 lost seconds fall inside one. |
 | **Some loss is not Starlink's.** | About half of the lost seconds also lost `8.8.8.8` (Starlink side); the rest were specific to the Cloudflare path. |
@@ -221,4 +221,3 @@ A `v*` tag runs the same CI checks before [`release.yml`](.github/workflows/rele
 - Satellite tracking clears the dish's obstruction map every 15 s, so the Starlink app shows little or no obstruction while Houston runs. Run with `-track-satellite=false` to keep the app's map. Houston keeps its own map from the cells the dish traces each slot and uses that instead. Its obstruction % appears once 60 % of the sky above the service floor has been checked; until then the dashboard shows "BUILDING MAP". The resets don't affect how the dish works.
 - Houston's obstruction map doesn't know when the dish is moved to a new spot. Delete `data/obstructionMap.json` and restart after moving it.
 - The serving satellite is known only once its slot's arc has been traced, about 14 s into the slot. The Sky View, Serving Link and sky page therefore show the slot that just ended, not the one in progress.
-
