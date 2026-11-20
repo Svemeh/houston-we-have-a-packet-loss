@@ -62,7 +62,6 @@ func (scheduler *secondScheduler) anchor(now time.Time) (second, target time.Tim
 	return second, target
 }
 
-// next returns the next second whose send time hasn't passed, skipping any that have.
 func (scheduler *secondScheduler) next(second time.Time) (time.Time, time.Time) {
 	now := scheduler.now()
 	if now.Sub(second) > SchedulerResyncAfter {
@@ -70,11 +69,16 @@ func (scheduler *secondScheduler) next(second time.Time) (time.Time, time.Time) 
 	}
 	for skipped := 0; ; skipped++ {
 		second = second.Add(time.Second)
-		target := second.Add(scheduler.phase())
-		if !now.After(target) {
-			scheduler.skips.add(now, skipped)
-			return second, target
+		end := second.Add(time.Second)
+		if !now.Before(end) {
+			continue
 		}
+		target := second.Add(scheduler.phase())
+		if now.After(target) {
+			target = now.Add(scheduler.phase() * end.Sub(now) / time.Second)
+		}
+		scheduler.skips.add(now, skipped)
+		return second, target
 	}
 }
 

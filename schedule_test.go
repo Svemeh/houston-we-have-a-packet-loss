@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"math/rand/v2"
 	"sync"
 	"testing"
 	"time"
@@ -106,6 +107,29 @@ func TestSchedulerSkipsSecondWhenRoundOverruns(t *testing.T) {
 	}
 	if scheduler.skips.skipped != 1 {
 		t.Errorf("skipped = %d, want 1", scheduler.skips.skipped)
+	}
+}
+
+func TestSchedulerKeepsEverySecondWhenRoundsAreSlow(t *testing.T) {
+	start := time.Date(2026, 11, 16, 7, 0, 0, 0, time.UTC)
+	clock := &fakeClock{at: start}
+	random := rand.New(rand.NewPCG(1, 2))
+	scheduler := secondScheduler{now: clock.now, sleep: clock.sleep, phase: func() time.Duration { return time.Duration(random.Int64N(int64(time.Second))) }}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	perSecond := map[time.Time]int{}
+	scheduler.run(ctx, func() {
+		perSecond[clock.now().Truncate(time.Second)]++
+		clock.advance(900 * time.Millisecond)
+		if clock.now().Sub(start) >= time.Hour {
+			cancel()
+		}
+	})
+
+	for second := start; second.Before(start.Add(time.Hour - time.Second)); second = second.Add(time.Second) {
+		if perSecond[second] != 1 {
+			t.Fatalf("second %v ran %d rounds, want 1 (%d of 3600 seconds covered)", second.Format("15:04:05"), perSecond[second], len(perSecond))
+		}
 	}
 }
 
