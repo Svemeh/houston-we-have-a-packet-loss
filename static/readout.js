@@ -3,6 +3,7 @@
 
   const SLOT_SECONDS = 15;
   const SLOT_BOUNDARY_OFFSET = 12; // handovers at :12/:27/:42/:57 UTC
+  const HANDOVER_LOOKBACK = "2m";
   const LIGHT_KM_PER_MS = 299.792458;
   const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
   const STATUS_TEXT = {
@@ -19,7 +20,7 @@
   if (!root) return;
   const shared = (window.houstonSky = window.houstonSky || {});
   const ui = Object.fromEntries(
-    ["status", "name", "sub", "el", "az", "range", "height", "fit", "one-way", "slot", "next", "bar", "last", "last-label", "last-text", "foot"]
+    ["status", "name", "sub", "el", "az", "range", "height", "fit", "one-way", "slot", "next", "bar", "last", "last-label", "last-text", "last-burst", "foot"]
       .map((id) => [id, document.getElementById(`readout-${id}`)]),
   );
   const setText = (element, text) => {
@@ -27,6 +28,7 @@
   };
   const pad = (n) => String(n).padStart(2, "0");
   let slotHistory = [];
+  let burst = null;
 
   const setStatus = (text, kind) => {
     setText(ui.status, text);
@@ -48,6 +50,41 @@
     setText(ui["last-label"], `HANDOVER AT :${pad(new Date(latest.slot_start).getUTCSeconds())}`);
     const same = previous.status === "matched" && latest.status === "matched" && previous.best.satellite === latest.best.satellite;
     setText(ui["last-text"], same ? `kept ${latest.best.satellite}` : `${slotName(previous)} → ${slotName(latest)}`);
+    updateBurst(latest);
+  };
+
+  const describeBurst = (sample) => {
+    const rtts = sample.rtt_ms.filter((rtt) => rtt >= 0);
+    const peak = rtts.length ? ` · peak ${Math.round(Math.max(...rtts))} ms` : "";
+    if (sample.lost === 0) return { text: `clean${peak}`, kind: "clean" };
+    if (sample.errors === sample.lost) return { text: `probes failed to send${peak}`, kind: "" };
+    if (!rtts.length) return { text: "all probes lost", kind: "lost" };
+    return { text: `lost ${sample.lost} ${sample.lost === 1 ? "probe" : "probes"}${peak}`, kind: "lost" };
+  };
+
+  const updateBurst = (latest) => {
+    const element = ui["last-burst"];
+    if (!element) return;
+    const shown = burst && latest && burst.boundary === Date.parse(latest.slot_start);
+    element.hidden = !shown;
+    if (!shown) return;
+    setText(element, burst.text);
+    element.className = `readout-last-burst ${burst.kind ? `is-${burst.kind}` : ""}`;
+  };
+
+  const loadBurst = async (slotStart) => {
+    const boundary = Date.parse(slotStart);
+    try {
+      const response = await fetch(`/handovers?range=${HANDOVER_LOOKBACK}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = await response.json();
+      const sample = (payload.samples || []).find((candidate) => Date.parse(candidate.boundary) === boundary);
+      burst = sample ? { boundary, ...describeBurst(sample) } : null;
+    } catch (error) {
+      console.warn("handover burst fetch failed", error);
+      burst = null;
+    }
+    updateLastHandover();
   };
 
   // The bar runs as one looping animation; each tick only nudges it back onto the wall clock.
@@ -141,15 +178,19 @@
     updateFoot();
   };
 
-  window.addEventListener("houston:serving", (event) => {
-    const slot = event.detail && event.detail.enabled ? event.detail.slot : null;
+  const onServing = (serving) => {
+    const slot = serving && serving.enabled ? serving.slot : null;
     if (slot && (!slotHistory.length || slotHistory[slotHistory.length - 1].slot_start !== slot.slot_start)) {
-      slotHistory = [...slotHistory.slice(-1), slot];
+      const previous = !slotHistory.length && serving.previous ? [serving.previous] : slotHistory.slice(-1);
+      slotHistory = [...previous, slot];
+      loadBurst(slot.slot_start);
     }
     update();
-  });
+  };
+
+  window.addEventListener("houston:serving", (event) => onServing(event.detail));
   window.addEventListener("houston:sky", update);
   window.addEventListener("houston:location", update);
-  update();
+  onServing(shared.serving);
   startClock();
 })();

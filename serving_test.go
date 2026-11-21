@@ -257,9 +257,13 @@ func TestServingHandler(t *testing.T) {
 	if payload := get(tracker); !payload.Enabled || payload.Slot != nil {
 		t.Errorf("no slot yet: %+v", payload)
 	}
-	tracker.latest = &ServingSlot{Status: ServingMatched, Best: &ServingCandidate{Satellite: "STARLINK-36645"}}
-	if payload := get(tracker); payload.Slot == nil || payload.Slot.Best.Satellite != "STARLINK-36645" {
+	tracker.record(ServingSlot{Status: ServingMatched, Best: &ServingCandidate{Satellite: "STARLINK-36645"}})
+	if payload := get(tracker); payload.Slot == nil || payload.Slot.Best.Satellite != "STARLINK-36645" || payload.Previous != nil {
 		t.Errorf("latest slot: %+v", payload)
+	}
+	tracker.record(ServingSlot{Status: ServingMatched, Best: &ServingCandidate{Satellite: "STARLINK-38363"}})
+	if payload := get(tracker); payload.Slot == nil || payload.Slot.Best.Satellite != "STARLINK-38363" || payload.Previous == nil || payload.Previous.Best.Satellite != "STARLINK-36645" {
+		t.Errorf("latest and previous slot: %+v", payload)
 	}
 }
 

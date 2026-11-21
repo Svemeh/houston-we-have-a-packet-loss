@@ -4,7 +4,11 @@
   const SKY_EVENTS_URL = "/skyevents";
   const SERVING_URL = "/serving";
   const LOCATION_URL = "/location";
-  const SERVING_POLL_MS = 5000;
+  const SLOT_MS = 15000;
+  const SLOT_BOUNDARY_OFFSET_MS = 12000;
+  const SERVING_READY_MS = 14600;
+  const SERVING_RETRY_MS = 1000;
+  const SERVING_RETRIES = 5;
   const SERVING_STALE_MS = 45000; // three slots without a result
   const WGS84_A_KM = 6378.137;
   const WGS84_E2 = 0.00669437999014;
@@ -102,7 +106,25 @@
     shared.publish("sky", snapshot);
   };
 
+  const nextServingReady = (now) => {
+    const boundary = Math.floor((now - SLOT_BOUNDARY_OFFSET_MS) / SLOT_MS) * SLOT_MS + SLOT_BOUNDARY_OFFSET_MS;
+    const ready = boundary + SERVING_READY_MS;
+    return ready > now ? ready : ready + SLOT_MS;
+  };
+
+  const latestSlotStart = () => (shared.serving && shared.serving.slot ? shared.serving.slot.slot_start : null);
+
+  const pollServing = async (attempt = 0) => {
+    const before = latestSlotStart();
+    await loadServing();
+    const tracking = Boolean(shared.serving && shared.serving.enabled);
+    if (tracking && latestSlotStart() === before && attempt < SERVING_RETRIES) {
+      setTimeout(() => pollServing(attempt + 1), SERVING_RETRY_MS);
+      return;
+    }
+    setTimeout(pollServing, nextServingReady(Date.now()) - Date.now());
+  };
+
   loadLocation();
-  loadServing();
-  setInterval(loadServing, SERVING_POLL_MS);
+  pollServing(SERVING_RETRIES);
 })();

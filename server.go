@@ -450,8 +450,9 @@ func newLocationHandler(tracker *SkyTracker, settingsPath string) http.HandlerFu
 }
 
 type servingResponse struct {
-	Enabled bool         `json:"enabled"`
-	Slot    *ServingSlot `json:"slot,omitempty"`
+	Enabled  bool         `json:"enabled"`
+	Slot     *ServingSlot `json:"slot,omitempty"`
+	Previous *ServingSlot `json:"previous,omitempty"`
 }
 
 // newServingHandler serves RouteServing: whether tracking is on, and the latest slot.
@@ -461,6 +462,9 @@ func newServingHandler(serving *ServingTracker) http.HandlerFunc {
 		if serving != nil {
 			if slot, ok := serving.Latest(); ok {
 				payload.Slot = &slot
+			}
+			if previous, ok := serving.Previous(); ok {
+				payload.Previous = &previous
 			}
 		}
 		response.Header().Set("Content-Type", "application/json")
