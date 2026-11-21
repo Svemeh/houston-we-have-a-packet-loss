@@ -178,17 +178,19 @@
     updateFoot();
   };
 
-  window.addEventListener("houston:serving", (event) => {
-    const slot = event.detail && event.detail.enabled ? event.detail.slot : null;
+  const onServing = (serving) => {
+    const slot = serving && serving.enabled ? serving.slot : null;
     if (slot && (!slotHistory.length || slotHistory[slotHistory.length - 1].slot_start !== slot.slot_start)) {
-      const previous = !slotHistory.length && event.detail.previous ? [event.detail.previous] : slotHistory.slice(-1);
+      const previous = !slotHistory.length && serving.previous ? [serving.previous] : slotHistory.slice(-1);
       slotHistory = [...previous, slot];
       loadBurst(slot.slot_start);
     }
     update();
-  });
+  };
+
+  window.addEventListener("houston:serving", (event) => onServing(event.detail));
   window.addEventListener("houston:sky", update);
   window.addEventListener("houston:location", update);
-  update();
+  onServing(shared.serving);
   startClock();
 })();
