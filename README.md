@@ -98,7 +98,7 @@ current distros. If the hops log `permission denied`, see the ICMP note under [R
 - **Serving link** — a 3D view under the charts of the dish, tilted the way it reports, with a beam to the satellite it is talking to at the true elevation and azimuth, plus that satellite's range, altitude, one-way delay and the last handover. Drag to turn it.
 - **Sky view page** — `/sky`, opened from the Serving Link card: a full-page globe with every tracked satellite at its true altitude and the same serving-satellite panel. Click a satellite to see its orbit. NASA Blue Marble by day and city lights by night, Natural Earth 1:50m borders; three.js and the map data are served from the binary, so it works offline.
 
-  ![Sky view page](docs/sky-view.png)
+  ![Sky view page](docs/sky.png)
 
 ### Running it
 
