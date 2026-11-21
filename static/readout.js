@@ -181,7 +181,8 @@
   window.addEventListener("houston:serving", (event) => {
     const slot = event.detail && event.detail.enabled ? event.detail.slot : null;
     if (slot && (!slotHistory.length || slotHistory[slotHistory.length - 1].slot_start !== slot.slot_start)) {
-      slotHistory = [...slotHistory.slice(-1), slot];
+      const previous = !slotHistory.length && event.detail.previous ? [event.detail.previous] : slotHistory.slice(-1);
+      slotHistory = [...previous, slot];
       loadBurst(slot.slot_start);
     }
     update();
