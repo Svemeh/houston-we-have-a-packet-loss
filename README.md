@@ -17,7 +17,7 @@ This tool measures each of those separately, at one-second resolution, and keeps
 
 ## What it found
 
-Three days of data (~253k one-second rounds) from a Gen 3 Standard dish:
+Three days of data (22–25 September 2026, ~253k one-second rounds) from a Gen 3 Standard dish:
 
 | Finding | Evidence |
 |---|---|
@@ -30,18 +30,77 @@ Three days of data (~253k one-second rounds) from a Gen 3 Standard dish:
 Conclusion: nothing on the local network needs fixing. Handover loss is inherent to the service, so the
 useful alarm is on loss *outside* the handover second — which the hourly rollup now measures.
 
+## Install
+
+**macOS / Linux**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Svemeh/houston-we-have-a-packet-loss/main/install.sh | sh
+```
+
+**Windows** (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/Svemeh/houston-we-have-a-packet-loss/main/install.ps1 | iex
+```
+
+The installer downloads the latest release, checks its checksum, sets Houston up to run in the background
+and opens the dashboard at <http://localhost:2101>. Set your location once in the dashboard's **Sky View** card. Run the
+same command again to update.
+
+| | Runs | Data | Needs |
+|---|---|---|---|
+| macOS | at login (LaunchAgent); installed over SSH: at boot (LaunchDaemon) | `~/Library/Application Support/Houston` | nothing; sudo over SSH |
+| Linux | at boot (systemd) | `/var/lib/houston` | sudo |
+| Windows | at startup (scheduled task) | `C:\ProgramData\Houston` | admin, once |
+
+To uninstall (data is kept):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Svemeh/houston-we-have-a-packet-loss/main/install.sh | sh -s -- uninstall
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Svemeh/houston-we-have-a-packet-loss/main/install.ps1))) -Uninstall
+```
+
+### Docker
+
+For a Linux machine that already runs Docker (home server, NAS, Raspberry Pi):
+
+```sh
+docker run -d --name houston --restart unless-stopped --network host \
+  -v houston-data:/app/data ghcr.io/svemeh/houston-we-have-a-packet-loss
+```
+
+or `docker compose up -d` with [`compose.yml`](compose.yml). Host networking lets Houston find the real LAN
+router and keeps Docker's NAT out of the ping times. On a Mac or Windows PC use the installer instead: Docker
+Desktop runs containers in a VM, and that extra hop shows up in every ping.
+
+The image runs as a non-root user, so pinging relies on the host allowing ping sockets, the default on
+current distros. If the hops log `permission denied`, see the ICMP note under [Running from source](#running-from-source).
+
 ## Features
 
+### Monitoring
+
 - **Live dashboard** — latency, loss, throughput, antenna power draw, link state and alarm strip, streamed over Server-Sent Events. Opens with 45 minutes of backfill; ranges up to 24 h.
-- **Per-hop pinger** — router (found from the default gateway), dish, Cloudflare and Google pinged in parallel each second, so a loss can be pinned to a segment of the path.
+- **Incidents** — a list of loss stretches, latency spikes and dish-reported outages, filterable by kind. A loss is labelled by which targets dropped together (e.g. "internet lost, router and dish still answering").
+- **Per-hop pinger** — router (found from the default gateway), dish, Cloudflare and Google pinged in parallel each second, at a random point in the second so no part of it is missed.
+- **Handover burst** — pings every 20 ms around each :12/:27/:42/:57 satellite reschedule, so the handover pause is measured directly.
 - **Dish telemetry** — status and outage history from the dish's gRPC API, including fields newer than the published protobufs (decoded by tag from the unknown-field bytes).
-- **Hourly rollup** — loss, RTT p50/p90/p99/max and jitter per target, plus loss bucketed by second within the 15 s satellite slot. Kept forever at ~600 B/hour.
+- **Hourly rollup** — loss, RTT p50/p90/p99/max and jitter per target, plus loss bucketed by second within the 15 s satellite slot. Kept forever at ~600 B/hour; feeds the jitter and handover-share tiles.
+
+### Satellites
+
 - **Satellite sky view** — on the dashboard: every Starlink satellite above the horizon, propagated with SGP4 from SpaceX's own orbit predictions (Celestrak supplemental elements, refreshed every 2 h).
 - **Serving satellite and obstruction map** — names the satellite serving each 15 s slot by matching the arc it traces on the dish's obstruction map, and builds Houston's own obstruction map from those arcs, drawn as a 3D dome you can turn.
 - **Serving link** — a 3D view under the charts of the dish, tilted the way it reports, with a beam to the satellite it is talking to at the true elevation and azimuth, plus that satellite's range, altitude, one-way delay and the last handover. Drag to turn it.
 - **Sky view page** — `/sky`, opened from the Serving Link card: a full-page globe with every tracked satellite at its true altitude and the same serving-satellite panel. Click a satellite to see its orbit. NASA Blue Marble by day and city lights by night, Natural Earth 1:50m borders; three.js and the map data are served from the binary, so it works offline.
 
-  ![Sky view page](docs/sky.png)
+  ![Sky view page](docs/sky-view.png)
+
+### Running it
 
 - **Fake mode** — a synthetic dish that cycles through degraded, obstructed, no-signal and offline states, so the UI can be developed without hardware.
 - **Single binary, no database** — static files are embedded; data is append-only JSON Lines, pruned by atomic rewrite.
@@ -75,66 +134,14 @@ Engineering notes:
 - **Restart-safe rollup** — summaries are computed from the on-disk log, not memory, so hours missed while the app was down are filled in on the next run.
 - **GPS time** — dish outage timestamps use the GPS epoch without leap seconds and are converted on read.
 
-## Install
-
-**macOS / Linux**
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Svemeh/houston-we-have-a-packet-loss/main/install.sh | sh
-```
-
-**Windows** (PowerShell)
-
-```powershell
-irm https://raw.githubusercontent.com/Svemeh/houston-we-have-a-packet-loss/main/install.ps1 | iex
-```
-
-The installer downloads the latest release, checks its checksum, sets Houston up to run in the background
-and opens the dashboard at <http://localhost:2101>. Set your location once in the dashboard's **Sky View** card. Run the
-same command again to update.
-
-| | Runs | Data | Needs |
-|---|---|---|---|
-| macOS | at login (LaunchAgent); installed over SSH: at boot (LaunchDaemon) | `~/Library/Application Support/Houston` | nothing; sudo over SSH |
-| Linux | at boot (systemd) | `/var/lib/houston` | sudo |
-| Windows | at startup (scheduled task) | `C:\ProgramData\Houston` | admin, once |
-
-To uninstall (data is kept): `curl -fsSL …/install.sh | sh -s -- uninstall` on macOS/Linux, or
-`& ([scriptblock]::Create((irm …/install.ps1))) -Uninstall` in PowerShell.
-
-### Docker
-
-For a Linux machine that already runs Docker (home server, NAS, Raspberry Pi):
-
-```sh
-docker run -d --name houston --restart unless-stopped --network host \
-  -v houston-data:/app/data ghcr.io/svemeh/houston-we-have-a-packet-loss
-```
-
-or `docker compose up -d` with [`compose.yml`](compose.yml). Host networking lets Houston find the real LAN
-router and keeps Docker's NAT out of the ping times. On a Mac or Windows PC use the installer instead: Docker
-Desktop runs containers in a VM, and that extra hop shows up in every ping.
-
-The image runs as a non-root user, so pinging relies on the host allowing ping sockets, the default on
-current distros. If the hops log `permission denied`:
-`sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"`.
-
 ## Running from source
 
 Requires Go 1.26+ and a Starlink dish on the local network (or `-fake`).
 
 ```sh
-go run .                      # dashboard on http://localhost:2101
-```
-
-Test without starlink:
-```sh
-go run . -fake                # synthetic dish, no starlink required
-```
-
-Quickly test reachability:
-```sh
-go run . -oneshot             # check dish + internet reachability and exit
+go run .            # dashboard on http://localhost:2101
+go run . -fake      # synthetic dish, no Starlink needed
+go run . -oneshot   # check dish + internet reachability and exit
 ```
 
 The dashboard's Sky View card asks for your location the first time and saves it to `data/settings.json`. To set it
@@ -162,8 +169,10 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | Route | |
 |---|---|
 | `/` | Dashboard |
-| `/events` · `/pingevents` · `/skyevents` | SSE streams |
-| `/history?range=1h` · `/pinghistory?range=1h` | Downsampled history (`range` = Go duration or `all`) |
+| `/events` · `/pingevents` · `/hopsevents` · `/skyevents` | SSE streams |
+| `/history?range=1h` · `/pinghistory?range=1h` · `/hopshistory?range=1h` | Downsampled history (`range` = Go duration or `all`) |
+| `/rollup?range=24h` | Hourly rollups |
+| `/incidents?range=1h` | Incidents, newest first; optional `kind=loss`, `latency` or `outage` |
 | `/log` · `/hopslog` | Raw JSONL |
 | `/location` | Observer location: `GET`, or `POST` JSON `{"latitude_deg":…,"longitude_deg":…}` |
 | `/serving` · `/obstructionmap` | Latest serving-satellite slot · Houston's own obstruction map (`enabled:false` without `-track-satellite`) |
@@ -179,11 +188,14 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `antenna.go` · `fakeAntenna.go` | Dish gRPC collector · synthetic collector |
 | `outages.go` | Dish outage history, protobuf decoding, GPS time |
 | `ping.go` · `hops.go` | ICMP echo and the per-hop pinger (1.1.1.1 feeds the To Internet charts) |
+| `schedule.go` | Runs the 1 s pingers at a random point in each second |
+| `handover.go` | Handover burst prober, `handovers.jsonl` |
 | `gateway*.go` | Finds the LAN router from the default gateway |
 | `rollup.go` | Hourly summary with handover-slot bucketing |
-| `serving.go` | Serving satellite: obstruction-map reset, arc matching, `serving.jsonl` |
+| `events.go` | Incidents, derived from the logs on request |
+| `serving.go` · `servingfloor.go` | Serving satellite: obstruction-map reset, arc matching, `serving.jsonl` · the lowest elevation the dish is seen serving from |
 | `obstructionmap.go` | Houston's own obstruction map: merges each slot's traced cells, saves `obstructionMap.json` |
-| `logFile.go` | JSONL persistence, pruning, range reads, downsampling |
+| `logFile.go` · `storage.go` | JSONL persistence, pruning, range reads, downsampling · the read interface the history routes use |
 | `hub.go` · `server.go` | SSE fan-out and HTTP routes |
 | `sky.go` · `settings.go` | Orbit element fetch/cache and SGP4 propagation · location saved from the dashboard |
 | `static/` | Dashboard (vanilla JS, canvas charts). `feed.js` streams the sky data for every panel, `readout.js` is the serving-satellite panel, `link.js` the 3D dish view, `globe.js` + `sky.html` the sky page |
@@ -196,7 +208,7 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 go test -race ./...
 ```
 
-Covers the rollup statistics and handover bucketing, both downsamplers, protobuf outage decoding, log append/prune/read, hub backpressure, the link-state heuristic, arc matching and the obstruction map merge and save.
+Covers the rollup statistics and handover bucketing, the handover burst prober, the per-second scheduler, both downsamplers, protobuf outage decoding, log append/prune/read, hub backpressure, the link-state heuristic, router discovery, SGP4 propagation and look angles, arc matching, the serving floor, the obstruction map merge and save, and location precedence.
 
 ### CI
 
@@ -219,7 +231,6 @@ A `v*` tag runs the same CI checks before [`release.yml`](.github/workflows/rele
 
 ## Known limitations
 
-- The hourly rollup is written to disk but not yet shown on the dashboard.
 - The dish's own drop counter reports ~3 s late relative to the pings.
 - Satellite tracking clears the dish's obstruction map every 15 s, so the Starlink app shows little or no obstruction while Houston runs. Run with `-track-satellite=false` to keep the app's map. Houston keeps its own map from the cells the dish traces each slot and uses that instead. Its obstruction % appears once 60 % of the sky above the service floor has been checked; until then the dashboard shows "BUILDING MAP". The resets don't affect how the dish works.
 - Houston's obstruction map doesn't know when the dish is moved to a new spot. Delete `data/obstructionMap.json` and restart after moving it.
