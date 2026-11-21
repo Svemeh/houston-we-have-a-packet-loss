@@ -1019,6 +1019,23 @@ header {
   color: var(--text);
 }
 
+.readout-last-burst {
+  font-size: 11px;
+  color: var(--label);
+}
+
+.readout-last-burst[hidden] {
+  display: none;
+}
+
+.readout-last-burst.is-clean {
+  color: var(--nominal);
+}
+
+.readout-last-burst.is-lost {
+  color: var(--alarm);
+}
+
 .readout-foot {
   margin-top: auto;
   font-size: 11px;
