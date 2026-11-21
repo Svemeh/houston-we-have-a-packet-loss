@@ -38,6 +38,7 @@ type dashboardSources struct {
 	hopsLogPath      string
 	rollupLogPath    string
 	outageLogPath    string
+	handoverLogPath  string
 
 	settingsPath string
 }
@@ -69,7 +70,10 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 		NewLogFileSource[HopSample](sources.hopsLogPath), DownsampleHops, MaxHistoryRange, MaxHistoryPoints))
 
 	router.HandleFunc(RouteRollup, newHistoryHandler(
-		NewLogFileSource[HopRollup](sources.rollupLogPath), newestRollups, MaxRollupRange, MaxRollupPoints))
+		NewLogFileSource[HopRollup](sources.rollupLogPath), keepNewest[HopRollup](RollupInterval), MaxRollupRange, MaxRollupPoints))
+
+	router.HandleFunc(RouteHandovers, newHistoryHandler(
+		NewLogFileSource[HandoverSample](sources.handoverLogPath), keepNewest[HandoverSample](HandoverSlotSeconds*time.Second), MaxHandoverRange, MaxHandoverPoints))
 
 	router.HandleFunc(RouteIncidents, newIncidentHandler(
 		NewLogFileSource[HopSample](sources.hopsLogPath),
@@ -277,14 +281,13 @@ func parseRange(requestedRange string) (time.Duration, error) {
 	return time.ParseDuration(requestedRange)
 }
 
-// newestRollups is the rollup route's downsampler: hourly records are already
-// coarse, so there is nothing to collapse. It only caps the response, keeping
-// the newest rows, so a multi-year range can't return the whole file at once.
-func newestRollups(rollups []HopRollup, _, _ time.Time, maxPoints int) ([]HopRollup, time.Duration) {
-	if maxPoints > 0 && len(rollups) > maxPoints {
-		rollups = rollups[len(rollups)-maxPoints:]
+func keepNewest[S Timestamped](interval time.Duration) downsampler[S, S] {
+	return func(samples []S, _, _ time.Time, maxPoints int) ([]S, time.Duration) {
+		if maxPoints > 0 && len(samples) > maxPoints {
+			samples = samples[len(samples)-maxPoints:]
+		}
+		return samples, interval
 	}
-	return rollups, RollupInterval
 }
 
 // incidentResponse is what RouteIncidents returns.

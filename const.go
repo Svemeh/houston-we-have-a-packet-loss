@@ -141,6 +141,9 @@ const (
 	HandoverBurstAfter       = 900 * time.Millisecond
 	HandoverBurstMaxLateWake = 50 * time.Millisecond
 	DefaultHandoverLogPath   = DataDir + "/handovers.jsonl"
+	RouteHandovers           = "/handovers"
+	MaxHandoverRange         = 24 * time.Hour
+	MaxHandoverPoints        = 480
 
 	// Serving satellite (-track-satellite): clear the obstruction map each slot, match the traced arc to a track.
 	DefaultTrackSatellite           = true
