@@ -241,8 +241,10 @@
     const serving = shared.serving;
     if (!serving) return "";
     if (!serving.enabled) return "TRACKING OFF";
+    if (shared.sky && shared.sky.tracked_count === 0) return "WAITING ON CELESTRAK";
     const slot = shared.currentSlot();
     if (!slot) return "WAITING FOR A SLOT";
+    if (slot.status === "stale_elements") return "ELEMENTS TOO OLD";
     if (slot.status !== "matched") return "NO MATCH THIS SLOT";
     return "NOT IN THE LIVE SKY";
   };

@@ -25,6 +25,7 @@ const (
 	ServingFewPixels        = "few_pixels"
 	ServingNoLocation       = "no_location"
 	ServingNoElements       = "no_elements"
+	ServingStaleElements    = "stale_elements"
 	ServingUnsupportedFrame = "unsupported_frame"
 	ServingError            = "error"
 )
@@ -53,13 +54,14 @@ type ServingCandidate struct {
 }
 
 type ServingSlot struct {
-	Start    time.Time         `json:"slot_start"`
-	Status   string            `json:"status"`
-	Pixels   int               `json:"pixels"`
-	Best     *ServingCandidate `json:"best,omitempty"`
-	RunnerUp *ServingCandidate `json:"runner_up,omitempty"`
-	Error    string            `json:"error,omitempty"`
-	Arc      []ArcPoint        `json:"arc,omitempty"`
+	Start        time.Time         `json:"slot_start"`
+	Status       string            `json:"status"`
+	Pixels       int               `json:"pixels"`
+	Best         *ServingCandidate `json:"best,omitempty"`
+	RunnerUp     *ServingCandidate `json:"runner_up,omitempty"`
+	Error        string            `json:"error,omitempty"`
+	Arc          []ArcPoint        `json:"arc,omitempty"`
+	ElementsAgeH int               `json:"elements_age_h,omitempty"`
 }
 
 // ArcPoint is one traced cell, kept for slots that didn't match so they can be rechecked later.
@@ -284,6 +286,14 @@ func classifyMatch(best, runnerUp *ServingCandidate) string {
 	return ServingMatched
 }
 
+func classifySlot(best, runnerUp *ServingCandidate, elementsAge time.Duration) string {
+	status := classifyMatch(best, runnerUp)
+	if status != ServingMatched && elementsAge > ServingMaxElementAge {
+		return ServingStaleElements
+	}
+	return status
+}
+
 type ServingTracker struct {
 	source  ObstructionMapSource
 	sky     *SkyTracker
@@ -426,7 +436,11 @@ func (tracker *ServingTracker) observeSlot(ctx context.Context, start time.Time)
 		slot.Status = ServingNoLocation
 	} else {
 		slot.Best, slot.RunnerUp = matchArc(pixels, candidates, observer)
-		slot.Status = classifyMatch(slot.Best, slot.RunnerUp)
+		elementsAge := tracker.sky.elementsAge()
+		slot.Status = classifySlot(slot.Best, slot.RunnerUp, elementsAge)
+		if slot.Status == ServingStaleElements {
+			slot.ElementsAgeH = int(elementsAge.Hours())
+		}
 	}
 	if slot.Status != ServingMatched {
 		slot.Arc = arcPoints(start, pixels)

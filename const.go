@@ -67,7 +67,7 @@ const (
 	CelestrakStarlinkURL    = "https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=starlink&FORMAT=json"
 	TLERefreshInterval      = 2 * time.Hour // Celestrak publishes about every 2 h; manoeuvring satellites drift off older elements
 	TLERefreshRetryInterval = 5 * time.Minute
-	TLEFetchTimeout         = 30 * time.Second
+	TLEFetchTimeout         = 5 * time.Minute
 	TLEStaleAfter           = 3 * 24 * time.Hour
 	SkyTickInterval         = 1 * time.Second
 	skySubscriberQueueDepth = 4
@@ -153,6 +153,7 @@ const (
 	ServingMinTimeOffsetS           = -3  // SpaceX elements put satellites within ±1 s; a wider search lets satellites from the same launch train compete
 	ServingMaxTimeOffsetS           = 3
 	ServingCandidateMinElevationDeg = 5.0
+	ServingMaxElementAge            = 24 * time.Hour
 	DefaultServingLogPath           = DataDir + "/serving.jsonl"
 
 	// Own obstruction map (-track-satellite): every slot's traced cells merged, since the dish's own map is cleared each slot.

@@ -7,9 +7,10 @@
   const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
   const STATUS_TEXT = {
     ambiguous: ["NO CLEAR MATCH", "two satellites fit this slot's arc about equally"],
+    stale_elements: ["STALE ELEMENTS", (slot) => `satellite elements are ${slot.elements_age_h} h old; Celestrak refresh failing`],
     few_pixels: ["ARC TOO SHORT", "too few map cells this slot to match"],
     no_location: ["NO LOCATION", "set your location in the Sky View card"],
-    no_elements: ["NO ELEMENTS", "waiting on satellite elements"],
+    no_elements: ["NO ELEMENTS", "waiting on celestrak for satellite elements"],
     unsupported_frame: ["UNSUPPORTED", "this dish's obstruction map can't be matched"],
     error: ["NO ANSWER", "the dish did not answer this slot"],
   };
@@ -53,11 +54,18 @@
   let slotBar = null;
   const updateClock = () => {
     const into = ((Date.now() / 1000 - SLOT_BOUNDARY_OFFSET) % SLOT_SECONDS + SLOT_SECONDS) % SLOT_SECONDS;
-    setText(ui.next, `${Math.ceil(SLOT_SECONDS - into)} s`);
+    const waiting = Boolean(shared.sky && shared.sky.tracked_count === 0);
+    setText(ui.next, waiting ? "—" : `${Math.ceil(SLOT_SECONDS - into)} s`);
     if (!ui.bar || !ui.bar.animate) return;
     if (!slotBar) {
       slotBar = ui.bar.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], { duration: SLOT_SECONDS * 1000, iterations: Infinity });
     }
+    if (waiting) {
+      slotBar.pause();
+      slotBar.currentTime = 0;
+      return;
+    }
+    if (slotBar.playState === "paused") slotBar.play();
     slotBar.currentTime = into * 1000;
   };
 
@@ -78,6 +86,10 @@
     const sky = shared.sky;
     if (!sky) {
       setText(ui.foot, where);
+      return;
+    }
+    if (sky.tracked_count === 0) {
+      setText(ui.foot, `${where} · waiting on celestrak`);
       return;
     }
     setText(ui.foot, `${where} · ${sky.in_cone_count} above ${sky.service_floor_deg}° · ${(sky.objects || []).length} above horizon`);
@@ -107,7 +119,7 @@
       const [pill, reason] = STATUS_TEXT[slot.status] || [slot.status.toUpperCase(), slot.status];
       setStatus(pill, "caution");
       setText(ui.name, "—");
-      setText(ui.sub, reason);
+      setText(ui.sub, typeof reason === "function" ? reason(slot) : reason);
     } else {
       setStatus("● MATCHED", "matched");
       setText(ui.name, slot.best.satellite);
