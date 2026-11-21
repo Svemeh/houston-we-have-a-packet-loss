@@ -7,7 +7,7 @@ between the PC and the internet once a second, and serves a live dashboard — s
 you can see *where* the packets died, not just that they did.
 
 ![Dashboard](docs/dashboard.png)
-<sub>Dashboard running with <code>-fake</code> (synthetic dish data).</sub>
+<sub>Dashboard on a live Gen 3 dish.</sub>
 
 ## Why
 
@@ -40,6 +40,9 @@ useful alarm is on loss *outside* the handover second — which the hourly rollu
 - **Serving satellite and obstruction map** — names the satellite serving each 15 s slot by matching the arc it traces on the dish's obstruction map, and builds Houston's own obstruction map from those arcs, drawn as a 3D dome you can turn.
 - **Serving link** — a 3D view under the charts of the dish, tilted the way it reports, with a beam to the satellite it is talking to at the true elevation and azimuth, plus that satellite's range, altitude, one-way delay and the last handover. Drag to turn it.
 - **Sky view page** — `/sky`, opened from the Serving Link card: a full-page globe with every tracked satellite at its true altitude and the same serving-satellite panel. Click a satellite to see its orbit. NASA Blue Marble by day and city lights by night, Natural Earth 1:50m borders; three.js and the map data are served from the binary, so it works offline.
+
+  ![Sky view page](docs/sky.png)
+
 - **Fake mode** — a synthetic dish that cycles through degraded, obstructed, no-signal and offline states, so the UI can be developed without hardware.
 - **Single binary, no database** — static files are embedded; data is append-only JSON Lines, pruned by atomic rewrite.
 
