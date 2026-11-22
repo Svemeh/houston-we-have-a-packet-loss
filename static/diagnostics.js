@@ -398,13 +398,14 @@
     chainParts.satNote = svgEl(satLine, "tspan", { class: "chain-note", dx: 8 }, "");
   };
 
-  const setSegment = (key, rttText, lossText, lostCount, missing) => {
+  const setSegment = (key, rttText, lossText, lostCount, missing, affected) => {
     const part = chainParts[key];
-    part.path.setAttribute("class", `chain-seg ${missing ? "is-missing" : lostCount > 0 ? "is-lost" : "is-clean"}`);
+    const status = lostCount > 0 ? "is-lost" : affected ? "is-affected" : "";
+    part.path.setAttribute("class", `chain-seg ${missing ? "is-missing" : status || "is-clean"}`);
     part.rtt.textContent = rttText;
-    part.loss.textContent = lossText;
-    part.rtt.setAttribute("class", `chain-value ${lostCount > 0 ? "is-lost" : ""}`);
-    part.loss.setAttribute("class", `chain-note ${lostCount > 0 ? "is-lost" : ""}`);
+    part.loss.textContent = !lostCount && affected ? "affected" : lossText;
+    part.rtt.setAttribute("class", `chain-value ${status}`);
+    part.loss.setAttribute("class", `chain-note ${status}`);
   };
 
   const drawChain = () => {
@@ -430,12 +431,12 @@
     const noData = !recent.length;
     const routerPinged = recent.some((point) => state.routerIp && point.hops[state.routerIp]);
     setSegment("lan", routerPinged ? fmtMs(rttOf(state.routerIp)) : "not pinged", routerPinged ? lossText(counts.lan) : "", counts.lan, noData || !routerPinged);
-    setSegment("dish", fmtMs(rttOf(DISH)), lossText(counts.dish), counts.dish, noData);
-    setSegment("space", `PoP ${fmtMs(popMs)}`, `${lossText(counts.space)} · dish drop ${dropPct == null ? "—" : dropPct.toFixed(1)}%`, counts.space, !recentTel.length);
+    setSegment("dish", fmtMs(rttOf(DISH)), lossText(counts.dish), counts.dish, noData, counts.lan > 0);
+    setSegment("space", `PoP ${fmtMs(popMs)}`, `${lossText(counts.space)} · dish drop ${dropPct == null ? "—" : dropPct.toFixed(1)}%`, counts.space, !recentTel.length, counts.lan + counts.dish > 0);
     for (const [key, ip] of [["cloudflare", CLOUDFLARE], ["google", GOOGLE]]) {
       const rtt = rttOf(ip);
       const beyond = rtt != null && popMs != null ? `+${Math.max(0, Math.round(rtt - popMs))} ms est.` : "—";
-      setSegment(key, beyond, lossText(counts[key]), counts[key], noData);
+      setSegment(key, beyond, lossText(counts[key]), counts[key], noData, counts.lan + counts.dish + counts.space > 0);
     }
 
     const shared = window.houstonSky || {};

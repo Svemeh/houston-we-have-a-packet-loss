@@ -1147,6 +1147,17 @@ header {
   stroke-width: 6;
 }
 
+.chain-seg.is-affected {
+  stroke: var(--alarm);
+  opacity: 0.35;
+}
+
+.chain-value.is-affected,
+.chain-note.is-affected {
+  fill: var(--alarm);
+  opacity: 0.6;
+}
+
 .chain-seg.is-missing {
   stroke-dasharray: 4 6;
 }
