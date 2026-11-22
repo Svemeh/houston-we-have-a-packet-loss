@@ -139,6 +139,11 @@
     return response.json();
   };
 
+  const announceRange = () => {
+    document.body.dataset.rangeMs = String(state.range.spanMs);
+    window.dispatchEvent(new CustomEvent("houston:diag-range", { detail: { spanMs: state.range.spanMs } }));
+  };
+
   const loadRange = async () => {
     const rangeBar = byId("diag-range");
     rangeBar.classList.add("is-loading");
@@ -526,6 +531,7 @@
         state.range = range;
         state.pinnedMs = null;
         for (const other of bar.children) other.classList.toggle("is-selected", other === button);
+        announceRange();
         loadRange();
       });
       bar.appendChild(button);
@@ -546,6 +552,7 @@
   });
 
   buildRangeBar();
+  announceRange();
   buildChain();
   buildLanes();
   window.addEventListener("resize", redraw);

@@ -1248,6 +1248,42 @@ header {
   height: 72px;
 }
 
+.handover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 8px 24px;
+}
+
+.scope canvas.handover-chart {
+  height: 160px;
+  cursor: default;
+}
+
+.scope canvas.handover-loss {
+  height: 40px;
+  margin-top: 4px;
+  cursor: default;
+}
+
+.handover-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.handover-nav .range-button {
+  padding: 0 8px;
+}
+
+.handover-nav .range-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+#burst-label.is-lost {
+  color: var(--alarm);
+}
+
 /* ---- Location panel ----------------------------------------------------
    Shown in the sky card until the server knows where the dish is. */
 

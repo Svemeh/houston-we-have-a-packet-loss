@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/styles.css">
   <script src="/feed.js" defer></script>
   <script src="/diagnostics.js" defer></script>
+  <script src="/handovers.js" defer></script>
 </head>
 
 <body class="diag-page">
@@ -40,6 +41,36 @@
         <span class="scope-range-label">RTT and lost seconds</span>
       </div>
       <div id="lane-list"></div>
+    </section>
+
+    <section class="scope" id="handovers">
+      <div class="scope-head">
+        <span class="label">Handovers</span>
+        <span class="scope-range-label" id="handover-stats">—</span>
+      </div>
+      <div class="handover-grid">
+        <div>
+          <div class="scope-head diag-sub">
+            <span class="label">Where in the 15 s slot</span>
+            <span class="scope-range-label" id="slot-range"></span>
+          </div>
+          <canvas class="handover-chart" id="slot-chart" aria-label="Share of seconds lost at each second of the 15 second satellite slot"></canvas>
+          <div class="diag-legend" id="slot-legend"></div>
+        </div>
+        <div>
+          <div class="scope-head diag-sub">
+            <span class="label">Around the handover</span>
+            <span class="handover-nav tabular-num">
+              <button type="button" class="range-button" id="burst-prev" aria-label="Previous burst">‹</button>
+              <span class="scope-range-label" id="burst-label"></span>
+              <button type="button" class="range-button" id="burst-next" aria-label="Next burst">›</button>
+            </span>
+          </div>
+          <canvas class="handover-chart" id="burst-chart" aria-label="Round-trip times of one 20 ms probe burst against the usual band"></canvas>
+          <canvas class="handover-loss" id="burst-loss" aria-label="How often each probe of the burst was lost"></canvas>
+          <div class="diag-legend" id="burst-legend"></div>
+        </div>
+      </div>
     </section>
   </main>
 </body>
