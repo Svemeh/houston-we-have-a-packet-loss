@@ -419,10 +419,9 @@
 
     const shared = window.houstonSky || {};
     const slot = shared.currentSlot ? shared.currentSlot() : null;
-    const object = shared.servingObject ? shared.servingObject() : null;
     if (slot && slot.status === "matched" && slot.best) {
       chainParts.satName.textContent = slot.best.satellite;
-      chainParts.satNote.textContent = object ? `el ${Math.round(object.el)}°` : "";
+      chainParts.satNote.textContent = "";
     } else {
       chainParts.satName.textContent = "satellite ?";
       chainParts.satNote.textContent = slot ? slot.status.replace(/_/g, " ") : "";
