@@ -261,11 +261,11 @@
   };
 
   const lanes = () => [
-    { key: "router", label: state.routerIp ? `router ${state.routerIp}` : "router (not pinged)", ip: state.routerIp },
-    { key: "dish", label: `dish ${DISH}`, ip: DISH },
-    { key: "space", label: "dish → PoP · the dish's own ping", tel: true },
-    { key: "cloudflare", label: `Cloudflare ${CLOUDFLARE}`, ip: CLOUDFLARE },
-    { key: "google", label: `Google ${GOOGLE}`, ip: GOOGLE },
+    { key: "router", segment: "lan", label: state.routerIp ? `router ${state.routerIp}` : "router (not pinged)", ip: state.routerIp },
+    { key: "dish", segment: "dish", label: `dish ${DISH}`, ip: DISH },
+    { key: "space", segment: "space", label: "dish → PoP · the dish's own ping", tel: true },
+    { key: "cloudflare", segment: "beyond", label: `Cloudflare ${CLOUDFLARE}`, ip: CLOUDFLARE },
+    { key: "google", segment: "beyond", label: `Google ${GOOGLE}`, ip: GOOGLE },
   ];
 
   const buildLanes = () => {
@@ -307,17 +307,18 @@
     context.font = `10px ${css("--mono")}`;
     context.fillText(`${Math.round(top)} ms`, 4, 10);
 
-    context.fillStyle = css("--alarm");
+    const color = css(SEGMENTS[lane.segment].color);
+    context.fillStyle = color;
     for (const point of points) {
       if (!point.lostFraction) continue;
       const x = xOf(point.t, width);
-      context.globalAlpha = Math.min(1, 0.35 + point.lostFraction);
+      context.globalAlpha = Math.min(0.6, 0.3 + point.lostFraction);
       context.fillRect(x, 0, Math.max(1.5, xOf(point.t + point.w, width) - x), height);
     }
     context.globalAlpha = 1;
 
     const gapMs = Math.max(MIN_GAP_MS, GAP_MULTIPLIER * (lane.tel ? state.telBucketMs : state.hopBucketMs));
-    context.strokeStyle = css(lane.tel ? "--chart-machine-to-internet-loss" : "--chart-machine-to-internet-ping");
+    context.strokeStyle = color;
     context.lineWidth = 1.2;
     context.beginPath();
     let previous = null;
