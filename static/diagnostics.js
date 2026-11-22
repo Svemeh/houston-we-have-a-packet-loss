@@ -23,10 +23,10 @@
   const SPACE_STATES = new Set(["DEGRADED", "OBSTRUCTED", "NO SIGNAL"]);
 
   const SEGMENTS = {
-    lan: { label: "LAN", color: "--chart-upload" },
-    dish: { label: "router–dish", color: "--amber" },
-    space: { label: "space link", color: "--chart-machine-to-internet-loss" },
-    beyond: { label: "beyond PoP", color: "--alarm" },
+    lan: { label: "machine → router", color: "--chart-upload" },
+    dish: { label: "router → dish", color: "--amber" },
+    space: { label: "dish → PoP", color: "--chart-machine-to-internet-loss" },
+    beyond: { label: "PoP → internet", color: "--alarm" },
   };
 
   const byId = (id) => document.getElementById(id);
@@ -244,7 +244,7 @@
   const lanes = () => [
     { key: "router", label: state.routerIp ? `router ${state.routerIp}` : "router (not pinged)", ip: state.routerIp },
     { key: "dish", label: `dish ${DISH}`, ip: DISH },
-    { key: "space", label: "space link · dish ping to PoP", tel: true },
+    { key: "space", label: "dish → PoP · the dish's own ping", tel: true },
     { key: "cloudflare", label: `Cloudflare ${CLOUDFLARE}`, ip: CLOUDFLARE },
     { key: "google", label: `Google ${GOOGLE}`, ip: GOOGLE },
   ];
