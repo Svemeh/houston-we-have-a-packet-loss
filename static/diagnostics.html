@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diagnostics · Houston</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' fill='%23f5b740'%3E%3Crect x='2' width='3' height='18'/%3E%3Crect x='13' width='3' height='18'/%3E%3Crect x='2' y='7.5' width='14' height='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/feed.js" defer></script>
+  <script src="/diagnostics.js" defer></script>
+</head>
+
+<body class="diag-page">
+  <header class="sky-head">
+    <a class="nav-button" href="/">← Dashboard</a>
+    <span class="label">Diagnostics</span>
+    <div class="range-bar diag-range" id="diag-range" role="group" aria-label="Time range"></div>
+  </header>
+
+  <main class="diag-layout">
+    <section class="scope">
+      <div class="scope-head">
+        <span class="label">Where it breaks</span>
+        <span class="scope-range-label" id="chain-status">—</span>
+      </div>
+      <svg class="diag-chain" id="chain" viewBox="0 0 760 225" role="img" aria-label="Path from this machine through router, dish, satellite and Starlink PoP to 1.1.1.1 and 8.8.8.8, with the failing segment in red"></svg>
+
+      <div class="scope-head diag-sub">
+        <span class="label">First failing segment</span>
+        <span class="scope-range-label" id="strip-range"></span>
+      </div>
+      <canvas class="diag-strip" id="strip" aria-label="Lost seconds coloured by the first segment that failed"></canvas>
+      <div class="diag-legend" id="strip-legend"></div>
+      <div class="diag-hover tabular-num" id="hover-readout">hover the strip or a lane · click the strip to pin a moment</div>
+    </section>
+
+    <section class="scope" id="lanes">
+      <div class="scope-head">
+        <span class="label">Per hop</span>
+        <span class="scope-range-label">RTT and lost seconds</span>
+      </div>
+      <div id="lane-list"></div>
+    </section>
+  </main>
+</body>
+</html>

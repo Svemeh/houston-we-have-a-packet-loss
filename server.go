@@ -54,6 +54,9 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 	router.HandleFunc(RouteSky, func(response http.ResponseWriter, request *http.Request) {
 		http.ServeFileFS(response, request, staticRoot, "sky.html")
 	})
+	router.HandleFunc(RouteDiagnostics, func(response http.ResponseWriter, request *http.Request) {
+		http.ServeFileFS(response, request, staticRoot, "diagnostics.html")
+	})
 
 	router.HandleFunc(RouteEvents, newSampleStreamHandler(sources.telemetryHub))
 	router.HandleFunc(RouteLog, newRawLogHandler(sources.telemetryLogPath))

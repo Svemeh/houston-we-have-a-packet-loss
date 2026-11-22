@@ -1107,6 +1107,147 @@ header {
   }
 }
 
+/* The diagnostics page: where loss starts, then each hop over time. */
+.diag-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.diag-range {
+  margin: 0 0 0 auto;
+}
+
+.diag-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.diag-chain {
+  display: block;
+  width: 100%;
+  max-height: 230px;
+  font-family: var(--mono);
+}
+
+.chain-seg {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke: var(--label-dim);
+}
+
+.chain-seg.is-clean {
+  stroke: var(--nominal);
+}
+
+.chain-seg.is-lost {
+  stroke: var(--alarm);
+  stroke-width: 6;
+}
+
+.chain-seg.is-affected {
+  stroke: var(--alarm);
+  opacity: 0.35;
+}
+
+.chain-value.is-affected,
+.chain-note.is-affected {
+  fill: var(--alarm);
+  opacity: 0.6;
+}
+
+.chain-seg.is-missing {
+  stroke-dasharray: 4 6;
+}
+
+.chain-node {
+  fill: var(--panel-sunken);
+  stroke: var(--label);
+  stroke-width: 2;
+}
+
+.chain-sat {
+  fill: var(--panel-sunken);
+  stroke: var(--chart-download);
+  stroke-width: 2;
+}
+
+.chain-label {
+  font-size: 12px;
+  fill: var(--label);
+}
+
+.chain-value {
+  font-size: 12px;
+  fill: var(--text);
+}
+
+.chain-note {
+  font-size: 11px;
+  fill: var(--label);
+}
+
+.chain-value.is-lost,
+.chain-note.is-lost,
+.scope-range-label.is-lost {
+  fill: var(--alarm);
+  color: var(--alarm);
+}
+
+.diag-sub {
+  margin-top: 14px;
+}
+
+.scope canvas.diag-strip {
+  height: 30px;
+}
+
+.diag-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--label);
+}
+
+.diag-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 8px;
+  margin-right: 6px;
+}
+
+.diag-legend b {
+  font-weight: 400;
+  color: var(--text);
+}
+
+.diag-hover {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--label-dim);
+  min-height: 1.4em;
+}
+
+.diag-lane + .diag-lane {
+  margin-top: 10px;
+}
+
+.diag-lane-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.scope .diag-lane canvas {
+  height: 72px;
+}
+
 /* ---- Location panel ----------------------------------------------------
    Shown in the sky card until the server knows where the dish is. */
 

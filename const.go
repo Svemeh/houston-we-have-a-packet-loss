@@ -23,6 +23,7 @@ const (
 	DefaultWebAddress = ":2101"
 	RouteIndex        = "/"
 	RouteSky          = "/sky"
+	RouteDiagnostics  = "/diagnostics"
 	RouteEvents       = "/events"
 	RouteLog          = "/log"
 	RouteHistory      = "/history"
