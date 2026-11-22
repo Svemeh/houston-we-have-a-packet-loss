@@ -166,7 +166,9 @@ func main() {
 		if router != "" {
 			HopLocalTargets = []string{router, DishHopTarget}
 		}
-		go NewHopPinger(hopTargets(router), hopsHub, hopsLogFile).Run(ctx)
+		hopPinger := NewHopPinger(hopTargets(router), hopsHub, hopsLogFile)
+		go hopPinger.Run(ctx)
+		go NewPopProber().KeepCurrent(ctx, hopPinger)
 		go NewHandoverProber(HandoverBurstTarget, handoverLogFile).Run(ctx)
 		go rollupLoop(ctx, *hopsLogPath, *logPath, *handoverLogPath, rollupLogFile, *rollupLogPath)
 	}

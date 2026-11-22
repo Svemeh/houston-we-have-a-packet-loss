@@ -19,7 +19,8 @@
   const DISH = "192.168.100.1";
   const CLOUDFLARE = "1.1.1.1";
   const GOOGLE = "8.8.8.8";
-  const KNOWN_TARGETS = new Set([DISH, CLOUDFLARE, GOOGLE]);
+  const POP = "pop";
+  const KNOWN_TARGETS = new Set([DISH, POP, CLOUDFLARE, GOOGLE]);
   const SPACE_STATES = new Set(["DEGRADED", "OBSTRUCTED", "NO SIGNAL"]);
 
   const SEGMENTS = {
@@ -106,11 +107,13 @@
   };
 
   const lostAt = (point, ip) => Boolean(ip && point.hops[ip] && point.hops[ip].lost > 0);
+  const popAnswered = (point) => Boolean(point.hops[POP] && point.hops[POP].lost < point.hops[POP].sent);
 
   const classify = (point, tel) => {
     if (lostAt(point, state.routerIp)) return "lan";
     if (lostAt(point, DISH)) return "dish";
-    if (lostAt(point, CLOUDFLARE) || lostAt(point, GOOGLE)) return spaceEvidence(point.t, point.w, tel) ? "space" : "beyond";
+    if (lostAt(point, POP)) return "space";
+    if (lostAt(point, CLOUDFLARE) || lostAt(point, GOOGLE)) return popAnswered(point) || !spaceEvidence(point.t, point.w, tel) ? "beyond" : "space";
     return null;
   };
 
@@ -119,6 +122,10 @@
     const lan = lost(state.routerIp);
     const dish = Math.max(0, lost(DISH) - lan);
     const upstream = Math.max(0, Math.max(lost(CLOUDFLARE), lost(GOOGLE)) - lan - dish);
+    if (point.hops[POP]) {
+      const space = Math.max(0, lost(POP) - lan - dish);
+      return { lan, dish, space, beyond: Math.max(0, upstream - space) };
+    }
     const space = upstream && spaceEvidence(point.t, point.w) ? upstream : 0;
     return { lan, dish, space, beyond: upstream - space };
   };
@@ -266,6 +273,7 @@
   const lanes = () => [
     { key: "router", segment: "lan", label: state.routerIp ? `router ${state.routerIp}` : "router (not pinged)", ip: state.routerIp },
     { key: "dish", segment: "dish", label: `dish ${DISH}`, ip: DISH },
+    { key: "pop", segment: "space", label: "PoP gateway · our probe", ip: POP },
     { key: "space", segment: "space", label: "dish → PoP · the dish's own ping", tel: true },
     { key: "cloudflare", segment: "beyond", label: `Cloudflare ${CLOUDFLARE}`, ip: CLOUDFLARE },
     { key: "google", segment: "beyond", label: `Google ${GOOGLE}`, ip: GOOGLE },
@@ -343,7 +351,8 @@
       ? points.filter((point) => point.lostFraction > 0).length
       : points.reduce((sum, point) => sum + (point.lost || 0), 0);
     const lossText = lane.tel ? `dish drop in ${lostTotal} ${state.telBucketMs > 1000 ? "buckets" : "s"}` : `${lostTotal} s lost`;
-    byId(`lane-note-${lane.key}`).textContent = lane.ip || lane.tel ? `${fmtMs(latest && latest.rtt)} now · ${lossText}` : "";
+    const note = lane.ip === POP && !points.length ? "not probed" : `${fmtMs(latest && latest.rtt)} now · ${lossText}`;
+    byId(`lane-note-${lane.key}`).textContent = lane.ip || lane.tel ? note : "";
   };
 
   const NODE = {
@@ -428,17 +437,18 @@
     counts.space += dishOnlyDrops(state.liveTel, state.liveHops, since, 1000).length;
     const rttOf = (ip) => median(recent.map((point) => point.hops[ip] && point.hops[ip].rtt).filter((rtt) => rtt != null));
     const lossText = (count) => (count ? `lost ${count} s` : "no loss");
-    const popMs = median(recentTel.map((sample) => sample.latency));
+    const probedPopMs = rttOf(POP);
+    const popMs = probedPopMs != null ? probedPopMs : median(recentTel.map((sample) => sample.latency));
     const dropPct = recentTel.length ? (100 * recentTel.reduce((sum, sample) => sum + sample.drop, 0)) / recentTel.length : null;
 
     const noData = !recent.length;
     const routerPinged = recent.some((point) => state.routerIp && point.hops[state.routerIp]);
     setSegment("lan", routerPinged ? fmtMs(rttOf(state.routerIp)) : "not pinged", routerPinged ? lossText(counts.lan) : "", counts.lan, noData || !routerPinged);
     setSegment("dish", fmtMs(rttOf(DISH)), lossText(counts.dish), counts.dish, noData, counts.lan > 0);
-    setSegment("space", `PoP ${fmtMs(popMs)}`, `${lossText(counts.space)} · dish drop ${dropPct == null ? "—" : dropPct.toFixed(1)}%`, counts.space, !recentTel.length, counts.lan + counts.dish > 0);
+    setSegment("space", `PoP ${fmtMs(popMs)}`, `${lossText(counts.space)} · dish drop ${dropPct == null ? "—" : dropPct.toFixed(1)}%`, counts.space, probedPopMs == null && !recentTel.length, counts.lan + counts.dish > 0);
     for (const [key, ip] of [["cloudflare", CLOUDFLARE], ["google", GOOGLE]]) {
       const rtt = rttOf(ip);
-      const beyond = rtt != null && popMs != null ? `+${Math.max(0, Math.round(rtt - popMs))} ms est.` : "—";
+      const beyond = rtt != null && popMs != null ? `+${Math.max(0, Math.round(rtt - popMs))} ms${probedPopMs == null ? " est." : ""}` : "—";
       setSegment(key, beyond, lossText(counts[key]), counts[key], noData, counts.lan + counts.dish + counts.space > 0);
     }
 
@@ -472,7 +482,8 @@
       segment ? `loss: ${SEGMENTS[segment].label}` : "clean",
       state.routerIp ? `router ${hop(state.routerIp)}` : null,
       `dish ${hop(DISH)}`,
-      tel ? `PoP ${fmtMs(tel.latency)} drop ${(100 * tel.drop).toFixed(0)}%` : null,
+      point.hops[POP] ? `PoP ${hop(POP)}` : null,
+      tel ? `dish → PoP ${fmtMs(tel.latency)} drop ${(100 * tel.drop).toFixed(0)}%` : null,
       `${CLOUDFLARE} ${hop(CLOUDFLARE)}`,
       `${GOOGLE} ${hop(GOOGLE)}`,
     ];

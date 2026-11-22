@@ -6,6 +6,7 @@ require (
 	github.com/joshuaferrara/go-satellite v0.0.0-20220611180459-512638c64e5b
 	github.com/prometheus-community/pro-bing v0.9.1
 	github.com/starlink-community/starlink-grpc-go v0.0.0-20210211202449-2e89f3d7e309
+	golang.org/x/net v0.62.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -13,7 +14,6 @@ require (
 require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
