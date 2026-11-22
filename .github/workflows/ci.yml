@@ -52,6 +52,30 @@ jobs:
           go-version-file: go.mod
       - run: go test -race ./...
 
+  pop-probe:
+    name: PoP probe (fake Starlink network)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: CGO_ENABLED=0 go test -c -o houston.test .
+      - run: sudo .github/netns.sh
+      - name: as root (raw socket)
+        run: sudo ip netns exec client env HOUSTON_NETNS_TEST=1 ./houston.test -test.run Netns -test.v
+      - name: as a normal user (ping socket)
+        run: sudo ip netns exec client setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups env HOUSTON_NETNS_TEST=1 ./houston.test -test.run Netns -test.v
+      - name: from the Docker image
+        run: |
+          docker build -t houston .
+          docker run -d --name holder --network none busybox sleep 600
+          sudo .github/netns.sh attach "$(docker inspect -f '{{.State.Pid}}' holder)"
+          docker run -d --name houston --network container:holder houston -fake -track-satellite=false
+          timeout 30 sh -c 'until docker logs houston 2>&1 | grep -q "pop hop: probing 100.64.0.1"; do sleep 1; done'
+      - if: always()
+        run: docker logs houston 2>&1 | tail -20 || true
+
   build:
     runs-on: ubuntu-latest
     steps:
