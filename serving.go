@@ -304,9 +304,10 @@ type ServingTracker struct {
 
 	obstruction *ObstructionMapper // nil: no map kept
 
-	mutex  sync.RWMutex
-	latest *ServingSlot
-	floor  servingFloor
+	mutex    sync.RWMutex
+	latest   *ServingSlot
+	previous *ServingSlot
+	floor    servingFloor
 }
 
 // NewServingTracker starts from prior slots so the measured service floor survives a restart; each slot also feeds obstruction.
@@ -348,13 +349,27 @@ func (tracker *ServingTracker) Run(ctx context.Context) {
 		if !ok {
 			return
 		}
-		tracker.mutex.Lock()
-		tracker.latest = &slot
-		tracker.mutex.Unlock()
+		tracker.record(slot)
 		tracker.emit(slot)
 		tracker.floor.add(slot)
 		tracker.updateServiceFloor()
 	}
+}
+
+func (tracker *ServingTracker) record(slot ServingSlot) {
+	tracker.mutex.Lock()
+	defer tracker.mutex.Unlock()
+	tracker.previous = tracker.latest
+	tracker.latest = &slot
+}
+
+func (tracker *ServingTracker) Previous() (slot ServingSlot, ok bool) {
+	tracker.mutex.RLock()
+	defer tracker.mutex.RUnlock()
+	if tracker.previous == nil {
+		return ServingSlot{}, false
+	}
+	return *tracker.previous, true
 }
 
 // Latest returns the most recent finished slot; ok is false before the first one.
