@@ -373,8 +373,9 @@
       chainParts[`node-${key}`] = svgEl(svg, "text", { ...text, class: "chain-label" }, label);
     }
     svgEl(svg, "rect", { x: satX - 8, y: satY - 8, width: 16, height: 16, rx: 3, class: "chain-sat" });
-    chainParts.satName = svgEl(svg, "text", { x: satX + 16, y: satY - 2, class: "chain-value", "text-anchor": "start" }, "satellite ?");
-    chainParts.satNote = svgEl(svg, "text", { x: satX + 16, y: satY + 13, class: "chain-note", "text-anchor": "start" }, "");
+    const satLine = svgEl(svg, "text", { x: satX + 16, y: satY + 4, "text-anchor": "start" });
+    chainParts.satName = svgEl(satLine, "tspan", { class: "chain-value" }, "satellite ?");
+    chainParts.satNote = svgEl(satLine, "tspan", { class: "chain-note", dx: 8 }, "");
   };
 
   const setSegment = (key, rttText, lossText, lostCount, missing) => {
