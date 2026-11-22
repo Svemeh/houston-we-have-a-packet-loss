@@ -956,58 +956,64 @@
 
   // ---- Live stream -------------------------------------------------------
   function connectToTelemetryStream() {
-    const eventSource = new EventSource("/events");
-    eventSource.onopen = () => {
-      connectionIndicator.className = "connection-status is-live";
-      connectionText.textContent = "Telemetry live";
-    };
-    // The hub's backfill is no longer the charts' data source — /history owns
-    // that — so we only take the newest sample from it to prime the readouts.
-    eventSource.addEventListener("backfill", event => {
-      try {
-        const backfillSamples = JSON.parse(event.data);
-        if (Array.isArray(backfillSamples) && backfillSamples.length) {
-          updateReadouts(backfillSamples[backfillSamples.length - 1]);
-        }
-      } catch {}
+    window.houstonSky.liveStream("/events", eventSource => {
+      eventSource.onopen = () => {
+        connectionIndicator.className = "connection-status is-live";
+        connectionText.textContent = "Telemetry live";
+      };
+      // The hub's backfill is no longer the charts' data source — /history owns
+      // that — so we only take the newest sample from it to prime the readouts.
+      eventSource.addEventListener("backfill", event => {
+        try {
+          const backfillSamples = JSON.parse(event.data);
+          if (Array.isArray(backfillSamples) && backfillSamples.length) {
+            updateReadouts(backfillSamples[backfillSamples.length - 1]);
+          }
+        } catch {}
+      });
+      eventSource.onmessage = event => {
+        try {
+          applyLiveSample(JSON.parse(event.data));
+        } catch {}
+      };
+      eventSource.onerror = () => {
+        connectionIndicator.className = "connection-status is-lost";
+        connectionText.textContent = "Reacquiring…";
+        setLinkState("OFFLINE");
+      };
+    }, () => {
+      selectRange(viewWindow.selectedRange.id);
+      loadIncidents();
+      loadSummaryTiles();
     });
-    eventSource.onmessage = event => {
-      try {
-        applyLiveSample(JSON.parse(event.data));
-      } catch {}
-    };
-    eventSource.onerror = () => {
-      connectionIndicator.className = "connection-status is-lost";
-      connectionText.textContent = "Reacquiring…";
-      setLinkState("OFFLINE");
-    };
   }
 
   function connectToPingStream() {
-    const eventSource = new EventSource("/pingevents");
-    // Like the dish stream: history owns the charts, backfill only primes the
-    // readouts — here with the last minute, so loss % is right immediately.
-    eventSource.addEventListener("backfill", event => {
-      try {
-        const backfillPings = JSON.parse(event.data);
-        if (!Array.isArray(backfillPings) || !backfillPings.length) return;
-        const newestMs = new Date(backfillPings[backfillPings.length - 1].timestamp).getTime();
-        clearPingReadouts();
-        for (const ping of backfillPings) {
-          if (new Date(ping.timestamp).getTime() > newestMs - MACHINE_TO_INTERNET_LOSS_WINDOW_MS) updatePingReadouts(ping);
-        }
-      } catch {}
+    window.houstonSky.liveStream("/pingevents", eventSource => {
+      // Like the dish stream: history owns the charts, backfill only primes the
+      // readouts — here with the last minute, so loss % is right immediately.
+      eventSource.addEventListener("backfill", event => {
+        try {
+          const backfillPings = JSON.parse(event.data);
+          if (!Array.isArray(backfillPings) || !backfillPings.length) return;
+          const newestMs = new Date(backfillPings[backfillPings.length - 1].timestamp).getTime();
+          clearPingReadouts();
+          for (const ping of backfillPings) {
+            if (new Date(ping.timestamp).getTime() > newestMs - MACHINE_TO_INTERNET_LOSS_WINDOW_MS) updatePingReadouts(ping);
+          }
+        } catch {}
+      });
+      eventSource.onmessage = event => {
+        try {
+          const ping = JSON.parse(event.data);
+          updatePingReadouts(ping);
+          chartPing(ping, false);
+        } catch {}
+      };
+      // Losing the dashboard server says nothing about the internet, so show no
+      // reading rather than a stale one.
+      eventSource.onerror = () => clearPingReadouts();
     });
-    eventSource.onmessage = event => {
-      try {
-        const ping = JSON.parse(event.data);
-        updatePingReadouts(ping);
-        chartPing(ping, false);
-      } catch {}
-    };
-    // Losing the dashboard server says nothing about the internet, so show no
-    // reading rather than a stale one.
-    eventSource.onerror = () => clearPingReadouts();
   }
 
   // Repaint once per second even without new data, so the strip keeps

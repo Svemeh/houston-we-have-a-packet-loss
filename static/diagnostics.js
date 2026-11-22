@@ -171,34 +171,37 @@
   };
 
   const connectLive = () => {
-    const hopStream = new EventSource("/hopsevents");
-    hopStream.addEventListener("backfill", (event) => {
-      try {
-        state.liveHops = JSON.parse(event.data).map((sample) => normalizeHop(sample, 1000));
-        trimLive();
-      } catch {}
+    const shared = window.houstonSky;
+    shared.liveStream("/hopsevents", (hopStream) => {
+      hopStream.addEventListener("backfill", (event) => {
+        try {
+          state.liveHops = JSON.parse(event.data).map((sample) => normalizeHop(sample, 1000));
+          trimLive();
+        } catch {}
+      });
+      hopStream.onmessage = (event) => {
+        try {
+          const point = normalizeHop(JSON.parse(event.data), 1000);
+          appendNewer(state.liveHops, point);
+          appendNewer(state.hops, point);
+        } catch {}
+      };
+    }, loadRange);
+    shared.liveStream("/events", (telStream) => {
+      telStream.addEventListener("backfill", (event) => {
+        try {
+          state.liveTel = JSON.parse(event.data).map(normalizeTel);
+          trimLive();
+        } catch {}
+      });
+      telStream.onmessage = (event) => {
+        try {
+          const sample = normalizeTel(JSON.parse(event.data));
+          appendNewer(state.liveTel, sample);
+          appendNewer(state.tel, sample);
+        } catch {}
+      };
     });
-    hopStream.onmessage = (event) => {
-      try {
-        const point = normalizeHop(JSON.parse(event.data), 1000);
-        appendNewer(state.liveHops, point);
-        appendNewer(state.hops, point);
-      } catch {}
-    };
-    const telStream = new EventSource("/events");
-    telStream.addEventListener("backfill", (event) => {
-      try {
-        state.liveTel = JSON.parse(event.data).map(normalizeTel);
-        trimLive();
-      } catch {}
-    });
-    telStream.onmessage = (event) => {
-      try {
-        const sample = normalizeTel(JSON.parse(event.data));
-        appendNewer(state.liveTel, sample);
-        appendNewer(state.tel, sample);
-      } catch {}
-    };
   };
 
   const prepareCanvas = (canvas) => {
