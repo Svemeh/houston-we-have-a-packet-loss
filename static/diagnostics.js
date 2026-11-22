@@ -24,9 +24,9 @@
 
   const SEGMENTS = {
     lan: { label: "machine → router", color: "--chart-upload" },
-    dish: { label: "router → dish", color: "--amber" },
-    space: { label: "dish → PoP", color: "--chart-power" },
-    beyond: { label: "PoP → internet", color: "--alarm" },
+    dish: { label: "router → dish", color: "--chart-latency" },
+    space: { label: "dish → PoP", color: "--chart-download" },
+    beyond: { label: "PoP → internet", color: "--chart-packet-loss" },
   };
 
   const byId = (id) => document.getElementById(id);

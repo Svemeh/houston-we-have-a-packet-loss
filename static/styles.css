@@ -1170,7 +1170,7 @@ header {
 
 .chain-sat {
   fill: var(--panel-sunken);
-  stroke: var(--chart-power);
+  stroke: var(--chart-download);
   stroke-width: 2;
 }
 
