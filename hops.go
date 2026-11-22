@@ -29,23 +29,34 @@ func (sample HopSample) SampleTime() time.Time { return sample.Timestamp }
 // HopPinger pings every target in parallel once per PingInterval and logs the
 // round as a single line, so every hop in a line shares the same second.
 type HopPinger struct {
-	pingers []*Pinger
+	mutex   sync.Mutex
+	pingers []hopProbe
 	hub     *Hub[HopSample]
 	logFile *LogFile[HopSample]
 }
 
 func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSample]) *HopPinger {
-	pingers := make([]*Pinger, 0, len(targets))
+	pingers := make([]hopProbe, 0, len(targets))
 	for _, target := range targets {
 		pingers = append(pingers, NewPinger(target))
 	}
 	return &HopPinger{pingers: pingers, hub: hub, logFile: logFile}
 }
 
+type hopProbe interface {
+	PingOnce(ctx context.Context) PingSample
+}
+
+func (hopPinger *HopPinger) Add(probe hopProbe) {
+	hopPinger.mutex.Lock()
+	defer hopPinger.mutex.Unlock()
+	hopPinger.pingers = append(hopPinger.pingers, probe)
+}
+
 // Run pings until ctx is cancelled. Errors are logged per hop when they start
 // and when they clear.
 func (hopPinger *HopPinger) Run(ctx context.Context) {
-	lastErrors := make(map[string]string, len(hopPinger.pingers))
+	lastErrors := make(map[string]string)
 
 	pingRound := func() {
 		sample := hopPinger.PingAll(ctx)
@@ -74,13 +85,17 @@ func (hopPinger *HopPinger) Run(ctx context.Context) {
 
 // PingAll sends one echo to every hop at once and waits for all of them.
 func (hopPinger *HopPinger) PingAll(ctx context.Context) HopSample {
-	sample := HopSample{Timestamp: time.Now(), Hops: make(map[string]HopResult, len(hopPinger.pingers))}
-	results := make([]PingSample, len(hopPinger.pingers))
+	hopPinger.mutex.Lock()
+	pingers := append([]hopProbe(nil), hopPinger.pingers...)
+	hopPinger.mutex.Unlock()
+
+	sample := HopSample{Timestamp: time.Now(), Hops: make(map[string]HopResult, len(pingers))}
+	results := make([]PingSample, len(pingers))
 
 	var waitGroup sync.WaitGroup
-	for index, pinger := range hopPinger.pingers {
+	for index, pinger := range pingers {
 		waitGroup.Add(1)
-		go func(index int, pinger *Pinger) {
+		go func(index int, pinger hopProbe) {
 			defer waitGroup.Done()
 			results[index] = pinger.PingOnce(ctx)
 		}(index, pinger)
