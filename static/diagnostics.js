@@ -23,10 +23,10 @@
   const SPACE_STATES = new Set(["DEGRADED", "OBSTRUCTED", "NO SIGNAL"]);
 
   const SEGMENTS = {
-    lan: { label: "machine → router", color: "--chart-upload" },
-    dish: { label: "router → dish", color: "--chart-latency" },
+    lan: { label: "machine → router", color: "--chart-latency" },
+    dish: { label: "router → dish", color: "--chart-packet-loss" },
     space: { label: "dish → PoP", color: "--chart-download" },
-    beyond: { label: "PoP → internet", color: "--chart-packet-loss" },
+    beyond: { label: "PoP → internet", color: "--chart-upload" },
   };
 
   const byId = (id) => document.getElementById(id);
