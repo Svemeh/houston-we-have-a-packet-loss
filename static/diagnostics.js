@@ -25,7 +25,7 @@
   const SEGMENTS = {
     lan: { label: "machine → router", color: "--chart-upload" },
     dish: { label: "router → dish", color: "--amber" },
-    space: { label: "dish → PoP", color: "--chart-machine-to-internet-loss" },
+    space: { label: "dish → PoP", color: "--chart-power" },
     beyond: { label: "PoP → internet", color: "--alarm" },
   };
 

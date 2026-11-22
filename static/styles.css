@@ -1170,7 +1170,7 @@ header {
 
 .chain-sat {
   fill: var(--panel-sunken);
-  stroke: var(--chart-machine-to-internet-loss);
+  stroke: var(--chart-power);
   stroke-width: 2;
 }
 
