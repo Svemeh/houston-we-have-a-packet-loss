@@ -94,6 +94,17 @@
     return false;
   };
 
+  const dishSawDrop = (sample) => sample.drop > 0 || SPACE_STATES.has(sample.linkState);
+
+  const dishOnlyDrops = (tel, hops, start, telWidthMs) => {
+    const losses = hops.filter((point) => point.t >= start - DISH_REPORT_AFTER_MS && classify(point, tel));
+    return tel.filter((sample) => {
+      if (sample.t < start || !dishSawDrop(sample)) return false;
+      const index = firstIndexAtOrAfter(losses, sample.t - DISH_REPORT_AFTER_MS - telWidthMs);
+      return !(index < losses.length && losses[index].t <= sample.t + DISH_REPORT_BEFORE_MS);
+    });
+  };
+
   const lostAt = (point, ip) => Boolean(ip && point.hops[ip] && point.hops[ip].lost > 0);
 
   const classify = (point, tel) => {
@@ -234,10 +245,18 @@
       context.fillStyle = css(SEGMENTS[segment].color);
       context.fillRect(x, 2, Math.max(2, xOf(point.t + point.w, width) - x), height - 4);
     }
+    const dishOnly = dishOnlyDrops(state.tel, state.hops, start, state.telBucketMs);
+    context.fillStyle = css(SEGMENTS.space.color);
+    for (const sample of dishOnly) {
+      const x = xOf(sample.t, width);
+      context.fillRect(x, 2, Math.max(2, xOf(sample.t + state.telBucketMs, width) - x), height - 4);
+    }
+    counts.space += dishOnly.length;
+    const atLeast = { space: dishOnly.length > 0 && state.telBucketMs > 1000 ? "≥" : "" };
     drawMarker(context, width, height);
     byId("strip-range").textContent = `last ${state.range.id}`;
     byId("strip-legend").innerHTML = Object.entries(SEGMENTS)
-      .map(([key, segment]) => `<span><i style="background:var(${segment.color})"></i>${segment.label} <b class="tabular-num">${counts[key]} s</b></span>`)
+      .map(([key, segment]) => `<span><i style="background:var(${segment.color})"></i>${segment.label} <b class="tabular-num">${atLeast[key] || ""}${counts[key]} s</b></span>`)
       .join("");
   };
 
@@ -401,6 +420,7 @@
         if (lostAt(point, GOOGLE)) counts.google++;
       }
     }
+    counts.space += dishOnlyDrops(state.liveTel, state.liveHops, since, 1000).length;
     const rttOf = (ip) => median(recent.map((point) => point.hops[ip] && point.hops[ip].rtt).filter((rtt) => rtt != null));
     const lossText = (count) => (count ? `lost ${count} s` : "no loss");
     const popMs = median(recentTel.map((sample) => sample.latency));
@@ -439,7 +459,8 @@
     const telIndex = firstIndexAtOrAfter(state.tel, t - 1000);
     const tel = state.tel[telIndex];
     if (!point || Math.abs(point.t - t) > Math.max(3000, 2 * state.hopBucketMs)) return `${clock(t)} · no data`;
-    const segment = classify(point);
+    const dishDropped = tel && Math.abs(tel.t - t) <= Math.max(1000, state.telBucketMs) && dishSawDrop(tel);
+    const segment = classify(point) || (dishDropped ? "space" : null);
     const hop = (ip) => (point.hops[ip] ? (point.hops[ip].lost ? `${point.hops[ip].lost}× lost` : fmtMs(point.hops[ip].rtt)) : "—");
     const parts = [
       clock(point.t),
