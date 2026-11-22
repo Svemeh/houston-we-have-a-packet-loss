@@ -92,19 +92,38 @@
     }
   };
 
-  const stream = new EventSource(SKY_EVENTS_URL);
-  stream.onmessage = (event) => {
-    let snapshot;
-    try {
-      snapshot = JSON.parse(event.data);
-    } catch (error) {
-      console.error("bad sky snapshot", error);
-      return;
-    }
-    // Set from another tab, or cleared by a restart: ask the server again.
-    if (shared.sky && shared.sky.location_set !== snapshot.location_set) loadLocation();
-    shared.publish("sky", snapshot);
+  shared.liveStream = (url, attach, onResume) => {
+    let source = null;
+    const open = () => {
+      source = new EventSource(url);
+      attach(source);
+    };
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        if (source) source.close();
+        source = null;
+      } else if (!source) {
+        open();
+        if (onResume) onResume();
+      }
+    });
+    if (!document.hidden) open();
   };
+
+  shared.liveStream(SKY_EVENTS_URL, (stream) => {
+    stream.onmessage = (event) => {
+      let snapshot;
+      try {
+        snapshot = JSON.parse(event.data);
+      } catch (error) {
+        console.error("bad sky snapshot", error);
+        return;
+      }
+      // Set from another tab, or cleared by a restart: ask the server again.
+      if (shared.sky && shared.sky.location_set !== snapshot.location_set) loadLocation();
+      shared.publish("sky", snapshot);
+    };
+  });
 
   const nextServingReady = (now) => {
     const boundary = Math.floor((now - SLOT_BOUNDARY_OFFSET_MS) / SLOT_MS) * SLOT_MS + SLOT_BOUNDARY_OFFSET_MS;
