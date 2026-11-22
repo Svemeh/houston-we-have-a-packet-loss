@@ -114,44 +114,43 @@ func (prober *PopProber) KeepCurrent(ctx context.Context, hopPinger *HopPinger) 
 
 var errNoAnswer = errors.New("no answer")
 
-func listenICMP() (*icmp.PacketConn, bool, error) {
-	if conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0"); err == nil {
-		return conn, true, nil
-	}
-	conn, err := icmp.ListenPacket("udp4", "0.0.0.0")
-	return conn, false, err
+type probeRequest struct {
+	target   net.IP
+	ttl      int
+	seq      int
+	packet   []byte
+	deadline time.Time
 }
 
 func (prober *PopProber) probe(ctx context.Context, ttl int) (net.IP, time.Duration, error) {
-	conn, raw, err := listenICMP()
-	if err != nil {
-		return nil, 0, fmt.Errorf("open icmp socket: %w", err)
-	}
-	defer conn.Close()
-	if err := conn.IPv4PacketConn().SetTTL(ttl); err != nil {
-		return nil, 0, fmt.Errorf("set ttl: %w", err)
-	}
-
 	seq := int(prober.seq.Add(1) & 0xffff)
 	message := icmp.Message{Type: ipv4.ICMPTypeEcho, Body: &icmp.Echo{ID: prober.id, Seq: seq, Data: []byte(AppName)}}
 	packet, err := message.Marshal(nil)
 	if err != nil {
 		return nil, 0, err
 	}
-	var destination net.Addr = &net.UDPAddr{IP: prober.target}
-	if raw {
-		destination = &net.IPAddr{IP: prober.target}
-	}
-
 	deadline := time.Now().Add(PingTimeout)
 	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		deadline = ctxDeadline
 	}
+	request := probeRequest{target: prober.target, ttl: ttl, seq: seq, packet: packet, deadline: deadline}
+
+	if conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0"); err == nil {
+		defer conn.Close()
+		return exchange(conn, &net.IPAddr{IP: prober.target}, request)
+	}
+	return probeUnprivileged(request)
+}
+
+func exchange(conn *icmp.PacketConn, destination net.Addr, request probeRequest) (net.IP, time.Duration, error) {
+	if err := conn.IPv4PacketConn().SetTTL(request.ttl); err != nil {
+		return nil, 0, fmt.Errorf("set ttl: %w", err)
+	}
 	sent := time.Now()
-	if _, err := conn.WriteTo(packet, destination); err != nil {
+	if _, err := conn.WriteTo(request.packet, destination); err != nil {
 		return nil, 0, fmt.Errorf("send: %w", err)
 	}
-	if err := conn.SetReadDeadline(deadline); err != nil {
+	if err := conn.SetReadDeadline(request.deadline); err != nil {
 		return nil, 0, err
 	}
 
@@ -166,7 +165,7 @@ func (prober *PopProber) probe(ctx context.Context, ttl int) (net.IP, time.Durat
 			continue
 		}
 		exceeded, ok := reply.Body.(*icmp.TimeExceeded)
-		if !ok || !quotesOurEcho(exceeded.Data, prober.target, seq) {
+		if !ok || !quotesOurEcho(exceeded.Data, request.target, request.seq) {
 			continue
 		}
 		return addrIP(peer), time.Since(sent), nil
@@ -184,8 +183,11 @@ func quotesOurEcho(quoted []byte, target net.IP, seq int) bool {
 	if !net.IP(quoted[16:20]).Equal(target) {
 		return false
 	}
-	echo := quoted[headerLength:]
-	return echo[0] == byte(ipv4.ICMPTypeEcho) && int(echo[6])<<8|int(echo[7]) == seq
+	return isOurEcho(quoted[headerLength:], seq)
+}
+
+func isOurEcho(echo []byte, seq int) bool {
+	return len(echo) >= 8 && echo[0] == byte(ipv4.ICMPTypeEcho) && int(echo[6])<<8|int(echo[7]) == seq
 }
 
 func addrIP(addr net.Addr) net.IP {
