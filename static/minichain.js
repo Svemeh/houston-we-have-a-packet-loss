@@ -1,8 +1,8 @@
 (() => {
   "use strict";
 
-  const WINDOW_MS = 60 * 1000;
-  const POLL_MS = 5000;
+  const POLL_MS = 1000;
+  const FETCH_RANGE = "75s";
   const NODES = [
     ["mac", "machine", 22],
     ["router", "router", 112],
@@ -46,50 +46,45 @@
     return response.json();
   };
 
-  const render = (hops, tel) => {
-    const since = Date.now() - WINDOW_MS;
-    let routerIp = null;
-    for (const point of hops) if (point.routerIp) routerIp = point.routerIp;
-    const recent = hops.filter((point) => point.t >= since);
-    const counts = { lan: 0, dish: 0, space: 0, beyond: 0 };
-    for (const point of recent) {
-      const segment = segments.classify(point, tel, routerIp);
-      if (segment) counts[segment]++;
+  const beyondState = (states) => {
+    for (const state of ["is-lost", "is-affected", "is-recent"]) {
+      if (states.cloudflare === state || states.google === state) return state;
     }
-    counts.space += segments.dishOnlyDrops(tel, hops, since, 1000, routerIp).length;
-
-    const routerPinged = recent.some((point) => routerIp && point.hops[routerIp]);
-    const firstFailing = ORDER.findIndex((key) => counts[key] > 0);
-    ORDER.forEach((key, index) => {
-      const missing = !recent.length || (key === "lan" && !routerPinged);
-      let state = "is-clean";
-      if (missing) state = "is-missing";
-      else if (counts[key]) state = "is-lost";
-      else if (firstFailing >= 0 && index > firstFailing) state = "is-affected";
-      parts[key].line.setAttribute("class", `chain-seg ${state}`);
-      parts[key].note.textContent = counts[key] ? `${counts[key]} s` : "";
-      parts[key].note.setAttribute("class", `chain-note ${counts[key] ? "is-lost" : ""}`);
-    });
-
-    const failing = ORDER.filter((key) => counts[key] > 0);
-    status.textContent = !recent.length
-      ? "waiting for pings"
-      : failing.length
-        ? `last 60 s: loss in ${failing.map((key) => `${segments.SEGMENTS[key].label} (${counts[key]} s)`).join(", ")}`
-        : "last 60 s: clean";
-    status.classList.toggle("is-lost", failing.length > 0);
+    return "is-clean";
   };
 
+  const render = (hops, tel) => {
+    let routerIp = null;
+    for (const point of hops) if (point.routerIp) routerIp = point.routerIp;
+    const chain = segments.chainStatus(hops, tel, routerIp, Date.now());
+    const states = { ...chain.states, beyond: beyondState(chain.states) };
+    const routerPinged = chain.recent.some((point) => routerIp && point.hops[routerIp]);
+    for (const key of ORDER) {
+      const missing = !chain.recent.length || (key === "lan" && !routerPinged);
+      const count = chain.counts[key];
+      const tone = states[key] === "is-clean" ? "" : states[key];
+      parts[key].line.setAttribute("class", `chain-seg ${missing ? "is-missing" : states[key]}`);
+      parts[key].note.textContent = count && states[key] !== "is-affected" ? `${count} s` : "";
+      parts[key].note.setAttribute("class", `chain-note ${tone}`);
+    }
+    status.textContent = chain.recent.length ? chain.text : "waiting for pings";
+    status.className = `mini-chain-status tabular-num ${chain.recent.length ? chain.tone : ""}`;
+  };
+
+  let polling = false;
   const poll = async () => {
-    if (document.hidden) return;
+    if (document.hidden || polling) return;
+    polling = true;
     try {
-      const [hops, tel] = await Promise.all([fetchJson("/hopshistory?range=2m"), fetchJson("/history?range=2m")]);
+      const [hops, tel] = await Promise.all([fetchJson(`/hopshistory?range=${FETCH_RANGE}`), fetchJson(`/history?range=${FETCH_RANGE}`)]);
       render(
         (hops.samples || []).map((sample) => segments.normalizeHop(sample, Math.max(1000, hops.bucket_width_ms || 0))),
         (tel.samples || []).map(segments.normalizeTel),
       );
     } catch (error) {
       console.warn("mini chain failed", error);
+    } finally {
+      polling = false;
     }
   };
 

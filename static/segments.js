@@ -9,6 +9,10 @@
   const SPACE_STATES = new Set(["DEGRADED", "OBSTRUCTED", "NO SIGNAL"]);
   const DISH_REPORT_BEFORE_MS = 1000;
   const DISH_REPORT_AFTER_MS = 5000;
+  const NOW_WINDOW_MS = 5000;
+  const CHAIN_WINDOW_MS = 60 * 1000;
+  const CHAIN_KEYS = ["lan", "dish", "space", "cloudflare", "google"];
+  const UPSTREAM_OF = { lan: [], dish: ["lan"], space: ["lan", "dish"], cloudflare: ["lan", "dish", "space"], google: ["lan", "dish", "space"] };
 
   const SEGMENTS = {
     lan: { label: "machine → router", color: "--chart-latency" },
@@ -76,8 +80,49 @@
     });
   };
 
+  const chainStatus = (hops, tel, routerIp, now) => {
+    const since = now - CHAIN_WINDOW_MS;
+    const recent = hops.slice(firstIndexAtOrAfter(hops, since));
+    const times = { lan: [], dish: [], space: [], cloudflare: [], google: [] };
+    for (const point of recent) {
+      const segment = classify(point, tel, routerIp);
+      if (segment === "beyond") {
+        if (lostAt(point, CLOUDFLARE)) times.cloudflare.push(point.t);
+        if (lostAt(point, GOOGLE)) times.google.push(point.t);
+      } else if (segment) {
+        times[segment].push(point.t);
+      }
+    }
+    for (const sample of dishOnlyDrops(tel, hops, since, 1000, routerIp)) times.space.push(sample.t);
+
+    const counts = {}, states = {};
+    const downNow = (key) => times[key].some((t) => t >= now - NOW_WINDOW_MS);
+    for (const key of CHAIN_KEYS) {
+      counts[key] = times[key].length;
+      if (downNow(key)) states[key] = "is-lost";
+      else if (UPSTREAM_OF[key].some(downNow)) states[key] = "is-affected";
+      else if (counts[key]) states[key] = "is-recent";
+      else states[key] = "is-clean";
+    }
+    counts.beyond = counts.cloudflare + counts.google;
+    const beyondState = [states.cloudflare, states.google].includes("is-lost") ? "is-lost" : counts.beyond && !UPSTREAM_OF.cloudflare.some(downNow) ? "is-recent" : "is-clean";
+    const summary = [["lan", states.lan], ["dish", states.dish], ["space", states.space], ["beyond", beyondState]];
+    const down = summary.filter(([, state]) => state === "is-lost").map(([key]) => key);
+    const earlier = summary.filter(([key, state]) => state === "is-recent" && counts[key]).map(([key]) => key);
+
+    let text = "last 60 s: clean", tone = "";
+    if (down.length) {
+      text = `down now: ${down.map((key) => SEGMENTS[key].label).join(", ")}`;
+      tone = "is-lost";
+    } else if (earlier.length) {
+      text = `last 60 s: loss in ${earlier.map((key) => `${SEGMENTS[key].label} (${counts[key]} s)`).join(", ")}`;
+      tone = "is-recent";
+    }
+    return { recent, counts, states, text, tone };
+  };
+
   window.houstonSegments = {
-    DISH, CLOUDFLARE, GOOGLE, POP, SPACE_STATES, SEGMENTS, DISH_REPORT_AFTER_MS,
-    normalizeHop, normalizeTel, firstIndexAtOrAfter, dishSawDrop, spaceEvidence, lostAt, popAnswered, classify, dishOnlyDrops,
+    DISH, CLOUDFLARE, GOOGLE, POP, SPACE_STATES, SEGMENTS, DISH_REPORT_AFTER_MS, NOW_WINDOW_MS, CHAIN_WINDOW_MS,
+    normalizeHop, normalizeTel, firstIndexAtOrAfter, dishSawDrop, spaceEvidence, lostAt, popAnswered, classify, dishOnlyDrops, chainStatus,
   };
 })();

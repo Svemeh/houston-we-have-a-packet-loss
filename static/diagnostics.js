@@ -8,15 +8,14 @@
     { id: "24h", spanMs: 24 * 60 * 60 * 1000 },
   ];
   const DEFAULT_RANGE_ID = "15m";
-  const CHAIN_WINDOW_MS = 60 * 1000;
   const REFETCH_MS = 5 * 60 * 1000;
   const REFETCH_RANGES_LONGER_THAN_MS = 15 * 60 * 1000;
   const MIN_GAP_MS = 3000;
   const GAP_MULTIPLIER = 2.5;
 
   const segments = window.houstonSegments;
-  const { DISH, CLOUDFLARE, GOOGLE, POP, SPACE_STATES, SEGMENTS, DISH_REPORT_AFTER_MS } = segments;
-  const { normalizeTel, firstIndexAtOrAfter, dishSawDrop, lostAt, popAnswered } = segments;
+  const { DISH, CLOUDFLARE, GOOGLE, POP, SPACE_STATES, SEGMENTS, DISH_REPORT_AFTER_MS, CHAIN_WINDOW_MS } = segments;
+  const { normalizeTel, firstIndexAtOrAfter, dishSawDrop } = segments;
 
   const byId = (id) => document.getElementById(id);
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -353,31 +352,22 @@
     chainParts.satNote = svgEl(satLine, "tspan", { class: "chain-note", dx: 8 }, "");
   };
 
-  const setSegment = (key, rttText, lossText, lostCount, missing, affected) => {
+  const setSegment = (key, rttText, lossText, state, missing) => {
     const part = chainParts[key];
-    const status = lostCount > 0 ? "is-lost" : affected ? "is-affected" : "";
-    part.path.setAttribute("class", `chain-seg ${missing ? "is-missing" : status || "is-clean"}`);
+    const tone = state === "is-clean" ? "" : state;
+    part.path.setAttribute("class", `chain-seg ${missing ? "is-missing" : state}`);
     part.rtt.textContent = rttText;
-    part.loss.textContent = !lostCount && affected ? "affected" : lossText;
-    part.rtt.setAttribute("class", `chain-value ${status}`);
-    part.loss.setAttribute("class", `chain-note ${status}`);
+    part.loss.textContent = state === "is-affected" ? "affected" : lossText;
+    part.rtt.setAttribute("class", `chain-value ${tone}`);
+    part.loss.setAttribute("class", `chain-note ${tone}`);
   };
 
   const drawChain = () => {
     trimLive();
     const since = windowEnd() - CHAIN_WINDOW_MS;
-    const recent = state.liveHops.slice(firstIndexAtOrAfter(state.liveHops, since));
+    const chain = segments.chainStatus(state.liveHops, state.liveTel, state.routerIp, windowEnd());
+    const { recent, counts, states } = chain;
     const recentTel = state.liveTel.slice(firstIndexAtOrAfter(state.liveTel, since)).filter((sample) => sample.latency != null);
-    const counts = { lan: 0, dish: 0, space: 0, cloudflare: 0, google: 0 };
-    for (const point of recent) {
-      const segment = classify(point, state.liveTel);
-      if (segment === "lan" || segment === "dish" || segment === "space") counts[segment]++;
-      if (segment === "beyond") {
-        if (lostAt(point, CLOUDFLARE)) counts.cloudflare++;
-        if (lostAt(point, GOOGLE)) counts.google++;
-      }
-    }
-    counts.space += dishOnlyDrops(state.liveTel, state.liveHops, since, 1000).length;
     const rttOf = (ip) => median(recent.map((point) => point.hops[ip] && point.hops[ip].rtt).filter((rtt) => rtt != null));
     const lossText = (count) => (count ? `lost ${count} s` : "no loss");
     const probedPopMs = rttOf(POP);
@@ -386,13 +376,13 @@
 
     const noData = !recent.length;
     const routerPinged = recent.some((point) => state.routerIp && point.hops[state.routerIp]);
-    setSegment("lan", routerPinged ? fmtMs(rttOf(state.routerIp)) : "not pinged", routerPinged ? lossText(counts.lan) : "", counts.lan, noData || !routerPinged);
-    setSegment("dish", fmtMs(rttOf(DISH)), lossText(counts.dish), counts.dish, noData, counts.lan > 0);
-    setSegment("space", `PoP ${fmtMs(popMs)}`, `${lossText(counts.space)} · dish drop ${dropPct == null ? "—" : dropPct.toFixed(1)}%`, counts.space, probedPopMs == null && !recentTel.length, counts.lan + counts.dish > 0);
+    setSegment("lan", routerPinged ? fmtMs(rttOf(state.routerIp)) : "not pinged", routerPinged ? lossText(counts.lan) : "", states.lan, noData || !routerPinged);
+    setSegment("dish", fmtMs(rttOf(DISH)), lossText(counts.dish), states.dish, noData);
+    setSegment("space", `PoP ${fmtMs(popMs)}`, `${lossText(counts.space)} · dish drop ${dropPct == null ? "—" : dropPct.toFixed(1)}%`, states.space, probedPopMs == null && !recentTel.length);
     for (const [key, ip] of [["cloudflare", CLOUDFLARE], ["google", GOOGLE]]) {
       const rtt = rttOf(ip);
       const beyond = rtt != null && popMs != null ? `+${Math.max(0, Math.round(rtt - popMs))} ms${probedPopMs == null ? " est." : ""}` : "—";
-      setSegment(key, beyond, lossText(counts[key]), counts[key], noData, counts.lan + counts.dish + counts.space > 0);
+      setSegment(key, beyond, lossText(counts[key]), states[key], noData);
     }
 
     const shared = window.houstonSky || {};
@@ -405,10 +395,9 @@
       chainParts.satNote.textContent = slot ? slot.status.replace(/_/g, " ") : "";
     }
 
-    const failing = [["lan", counts.lan], ["dish", counts.dish], ["space", counts.space], ["beyond", counts.cloudflare + counts.google]].filter(([, count]) => count > 0);
     const status = byId("chain-status");
-    status.textContent = noData ? "waiting for pings" : failing.length ? `last 60 s: loss in ${failing.map(([key, count]) => `${SEGMENTS[key].label} (${count} s)`).join(", ")}` : "last 60 s: clean";
-    status.className = `scope-range-label ${failing.length ? "is-lost" : ""}`;
+    status.textContent = noData ? "waiting for pings" : chain.text;
+    status.className = `scope-range-label ${noData ? "" : chain.tone}`;
   };
 
   const describeMoment = (t) => {

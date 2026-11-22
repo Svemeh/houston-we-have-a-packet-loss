@@ -1158,6 +1158,18 @@ header {
   opacity: 0.6;
 }
 
+.chain-seg.is-recent {
+  stroke: var(--caution);
+  stroke-width: 5;
+}
+
+.chain-value.is-recent,
+.chain-note.is-recent,
+.scope-range-label.is-recent {
+  fill: var(--caution);
+  color: var(--caution);
+}
+
 .chain-seg.is-missing {
   stroke-dasharray: 4 6;
 }
@@ -1264,6 +1276,10 @@ header {
 
 .mini-chain-status.is-lost {
   color: var(--alarm);
+}
+
+.mini-chain-status.is-recent {
+  color: var(--caution);
 }
 
 .handover-grid {
