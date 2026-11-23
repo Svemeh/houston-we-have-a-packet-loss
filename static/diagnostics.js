@@ -8,27 +8,14 @@
     { id: "24h", spanMs: 24 * 60 * 60 * 1000 },
   ];
   const DEFAULT_RANGE_ID = "15m";
-  const CHAIN_WINDOW_MS = 60 * 1000;
-  const DISH_REPORT_BEFORE_MS = 1000;
-  const DISH_REPORT_AFTER_MS = 5000;
   const REFETCH_MS = 5 * 60 * 1000;
   const REFETCH_RANGES_LONGER_THAN_MS = 15 * 60 * 1000;
   const MIN_GAP_MS = 3000;
   const GAP_MULTIPLIER = 2.5;
 
-  const DISH = "192.168.100.1";
-  const CLOUDFLARE = "1.1.1.1";
-  const GOOGLE = "8.8.8.8";
-  const POP = "pop";
-  const KNOWN_TARGETS = new Set([DISH, POP, CLOUDFLARE, GOOGLE]);
-  const SPACE_STATES = new Set(["DEGRADED", "OBSTRUCTED", "NO SIGNAL"]);
-
-  const SEGMENTS = {
-    lan: { label: "machine → router", color: "--chart-latency" },
-    dish: { label: "router → dish", color: "--chart-packet-loss" },
-    space: { label: "dish → PoP", color: "--chart-download" },
-    beyond: { label: "PoP → internet", color: "--chart-upload" },
-  };
+  const segments = window.houstonSegments;
+  const { DISH, CLOUDFLARE, GOOGLE, POP, SPACE_STATES, SEGMENTS, DISH_REPORT_AFTER_MS, CHAIN_WINDOW_MS } = segments;
+  const { normalizeTel, firstIndexAtOrAfter, dishSawDrop } = segments;
 
   const byId = (id) => document.getElementById(id);
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -59,63 +46,13 @@
   };
 
   const normalizeHop = (sample, widthMs) => {
-    const hops = {};
-    for (const [ip, value] of Object.entries(sample.hops || {})) {
-      const lost = typeof value.lost === "boolean" ? (value.lost ? 1 : 0) : value.lost || 0;
-      const sent = value.sent == null ? 1 : value.sent;
-      hops[ip] = { rtt: lost >= sent ? null : value.rtt_ms, sent, lost };
-      if (!KNOWN_TARGETS.has(ip)) state.routerIp = ip;
-    }
-    return { t: Date.parse(sample.timestamp), w: widthMs, hops };
+    const point = segments.normalizeHop(sample, widthMs);
+    if (point.routerIp) state.routerIp = point.routerIp;
+    return point;
   };
-
-  const normalizeTel = (sample) => ({
-    t: Date.parse(sample.timestamp),
-    latency: sample.link_state === "OFFLINE" ? null : sample.latency_ms,
-    drop: sample.drop_rate_fraction || 0,
-    linkState: sample.link_state,
-  });
-
-  const firstIndexAtOrAfter = (points, t) => {
-    let low = 0, high = points.length;
-    while (low < high) {
-      const mid = (low + high) >> 1;
-      if (points[mid].t < t) low = mid + 1;
-      else high = mid;
-    }
-    return low;
-  };
-
-  const spaceEvidence = (t, widthMs, tel = state.tel) => {
-    const end = t + widthMs + DISH_REPORT_AFTER_MS;
-    for (let index = firstIndexAtOrAfter(tel, t - DISH_REPORT_BEFORE_MS); index < tel.length && tel[index].t <= end; index++) {
-      const sample = tel[index];
-      if (sample.drop > 0 || SPACE_STATES.has(sample.linkState)) return true;
-    }
-    return false;
-  };
-
-  const dishSawDrop = (sample) => sample.drop > 0 || SPACE_STATES.has(sample.linkState);
-
-  const dishOnlyDrops = (tel, hops, start, telWidthMs) => {
-    const losses = hops.filter((point) => point.t >= start - DISH_REPORT_AFTER_MS && classify(point, tel));
-    return tel.filter((sample) => {
-      if (sample.t < start || !dishSawDrop(sample)) return false;
-      const index = firstIndexAtOrAfter(losses, sample.t - DISH_REPORT_AFTER_MS - telWidthMs);
-      return !(index < losses.length && losses[index].t <= sample.t + DISH_REPORT_BEFORE_MS);
-    });
-  };
-
-  const lostAt = (point, ip) => Boolean(ip && point.hops[ip] && point.hops[ip].lost > 0);
-  const popAnswered = (point) => Boolean(point.hops[POP] && point.hops[POP].lost < point.hops[POP].sent);
-
-  const classify = (point, tel) => {
-    if (lostAt(point, state.routerIp)) return "lan";
-    if (lostAt(point, DISH)) return "dish";
-    if (lostAt(point, POP)) return "space";
-    if (lostAt(point, CLOUDFLARE) || lostAt(point, GOOGLE)) return popAnswered(point) || !spaceEvidence(point.t, point.w, tel) ? "beyond" : "space";
-    return null;
-  };
+  const spaceEvidence = (t, widthMs, tel = state.tel) => segments.spaceEvidence(tel, t, widthMs);
+  const classify = (point, tel = state.tel) => segments.classify(point, tel, state.routerIp);
+  const dishOnlyDrops = (tel, hops, start, telWidthMs) => segments.dishOnlyDrops(tel, hops, start, telWidthMs, state.routerIp);
 
   const lostBySegment = (point) => {
     const lost = (ip) => (ip && point.hops[ip] ? point.hops[ip].lost : 0);
@@ -137,6 +74,11 @@
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
     return response.json();
+  };
+
+  const announceRange = () => {
+    document.body.dataset.rangeMs = String(state.range.spanMs);
+    window.dispatchEvent(new CustomEvent("houston:diag-range", { detail: { spanMs: state.range.spanMs } }));
   };
 
   const loadRange = async () => {
@@ -410,31 +352,22 @@
     chainParts.satNote = svgEl(satLine, "tspan", { class: "chain-note", dx: 8 }, "");
   };
 
-  const setSegment = (key, rttText, lossText, lostCount, missing, affected) => {
+  const setSegment = (key, rttText, lossText, state, missing) => {
     const part = chainParts[key];
-    const status = lostCount > 0 ? "is-lost" : affected ? "is-affected" : "";
-    part.path.setAttribute("class", `chain-seg ${missing ? "is-missing" : status || "is-clean"}`);
+    const tone = state === "is-clean" ? "" : state;
+    part.path.setAttribute("class", `chain-seg ${missing ? "is-missing" : state}`);
     part.rtt.textContent = rttText;
-    part.loss.textContent = !lostCount && affected ? "affected" : lossText;
-    part.rtt.setAttribute("class", `chain-value ${status}`);
-    part.loss.setAttribute("class", `chain-note ${status}`);
+    part.loss.textContent = state === "is-affected" ? "affected" : lossText;
+    part.rtt.setAttribute("class", `chain-value ${tone}`);
+    part.loss.setAttribute("class", `chain-note ${tone}`);
   };
 
   const drawChain = () => {
     trimLive();
     const since = windowEnd() - CHAIN_WINDOW_MS;
-    const recent = state.liveHops.slice(firstIndexAtOrAfter(state.liveHops, since));
+    const chain = segments.chainStatus(state.liveHops, state.liveTel, state.routerIp, windowEnd());
+    const { recent, counts, states } = chain;
     const recentTel = state.liveTel.slice(firstIndexAtOrAfter(state.liveTel, since)).filter((sample) => sample.latency != null);
-    const counts = { lan: 0, dish: 0, space: 0, cloudflare: 0, google: 0 };
-    for (const point of recent) {
-      const segment = classify(point, state.liveTel);
-      if (segment === "lan" || segment === "dish" || segment === "space") counts[segment]++;
-      if (segment === "beyond") {
-        if (lostAt(point, CLOUDFLARE)) counts.cloudflare++;
-        if (lostAt(point, GOOGLE)) counts.google++;
-      }
-    }
-    counts.space += dishOnlyDrops(state.liveTel, state.liveHops, since, 1000).length;
     const rttOf = (ip) => median(recent.map((point) => point.hops[ip] && point.hops[ip].rtt).filter((rtt) => rtt != null));
     const lossText = (count) => (count ? `lost ${count} s` : "no loss");
     const probedPopMs = rttOf(POP);
@@ -443,13 +376,13 @@
 
     const noData = !recent.length;
     const routerPinged = recent.some((point) => state.routerIp && point.hops[state.routerIp]);
-    setSegment("lan", routerPinged ? fmtMs(rttOf(state.routerIp)) : "not pinged", routerPinged ? lossText(counts.lan) : "", counts.lan, noData || !routerPinged);
-    setSegment("dish", fmtMs(rttOf(DISH)), lossText(counts.dish), counts.dish, noData, counts.lan > 0);
-    setSegment("space", `PoP ${fmtMs(popMs)}`, `${lossText(counts.space)} · dish drop ${dropPct == null ? "—" : dropPct.toFixed(1)}%`, counts.space, probedPopMs == null && !recentTel.length, counts.lan + counts.dish > 0);
+    setSegment("lan", routerPinged ? fmtMs(rttOf(state.routerIp)) : "not pinged", routerPinged ? lossText(counts.lan) : "", states.lan, noData || !routerPinged);
+    setSegment("dish", fmtMs(rttOf(DISH)), lossText(counts.dish), states.dish, noData);
+    setSegment("space", `PoP ${fmtMs(popMs)}`, `${lossText(counts.space)} · dish drop ${dropPct == null ? "—" : dropPct.toFixed(1)}%`, states.space, probedPopMs == null && !recentTel.length);
     for (const [key, ip] of [["cloudflare", CLOUDFLARE], ["google", GOOGLE]]) {
       const rtt = rttOf(ip);
       const beyond = rtt != null && popMs != null ? `+${Math.max(0, Math.round(rtt - popMs))} ms${probedPopMs == null ? " est." : ""}` : "—";
-      setSegment(key, beyond, lossText(counts[key]), counts[key], noData, counts.lan + counts.dish + counts.space > 0);
+      setSegment(key, beyond, lossText(counts[key]), states[key], noData);
     }
 
     const shared = window.houstonSky || {};
@@ -462,10 +395,9 @@
       chainParts.satNote.textContent = slot ? slot.status.replace(/_/g, " ") : "";
     }
 
-    const failing = [["lan", counts.lan], ["dish", counts.dish], ["space", counts.space], ["beyond", counts.cloudflare + counts.google]].filter(([, count]) => count > 0);
     const status = byId("chain-status");
-    status.textContent = noData ? "waiting for pings" : failing.length ? `last 60 s: loss in ${failing.map(([key, count]) => `${SEGMENTS[key].label} (${count} s)`).join(", ")}` : "last 60 s: clean";
-    status.className = `scope-range-label ${failing.length ? "is-lost" : ""}`;
+    status.textContent = noData ? "waiting for pings" : chain.text;
+    status.className = `scope-range-label ${noData ? "" : chain.tone}`;
   };
 
   const describeMoment = (t) => {
@@ -498,7 +430,8 @@
   const attachHover = (canvas) => {
     if (!canvas) return;
     canvas.addEventListener("mousemove", (event) => {
-      state.hoverMs = windowStart() + (event.offsetX / canvas.clientWidth) * state.range.spanMs;
+      const rect = canvas.getBoundingClientRect();
+      state.hoverMs = windowStart() + ((event.clientX - rect.left) / rect.width) * state.range.spanMs;
       redraw();
     });
     canvas.addEventListener("mouseleave", () => {
@@ -526,6 +459,7 @@
         state.range = range;
         state.pinnedMs = null;
         for (const other of bar.children) other.classList.toggle("is-selected", other === button);
+        announceRange();
         loadRange();
       });
       bar.appendChild(button);
@@ -546,6 +480,7 @@
   });
 
   buildRangeBar();
+  announceRange();
   buildChain();
   buildLanes();
   window.addEventListener("resize", redraw);

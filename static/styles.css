@@ -478,7 +478,7 @@ header {
 
 .body-side {
   display: grid;
-  grid-template-rows: auto auto minmax(360px, 1fr);
+  grid-template-rows: auto auto auto minmax(360px, 1fr);
   gap: 10px;
   min-width: 0;
 }
@@ -1158,6 +1158,18 @@ header {
   opacity: 0.6;
 }
 
+.chain-seg.is-recent {
+  stroke: var(--caution);
+  stroke-width: 5;
+}
+
+.chain-value.is-recent,
+.chain-note.is-recent,
+.scope-range-label.is-recent {
+  fill: var(--caution);
+  color: var(--caution);
+}
+
 .chain-seg.is-missing {
   stroke-dasharray: 4 6;
 }
@@ -1246,6 +1258,64 @@ header {
 
 .scope .diag-lane canvas {
   height: 72px;
+}
+
+.mini-chain {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  font-family: var(--mono);
+}
+
+.mini-chain-status {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--label);
+}
+
+.mini-chain-status.is-lost {
+  color: var(--alarm);
+}
+
+.mini-chain-status.is-recent {
+  color: var(--caution);
+}
+
+.handover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 8px 24px;
+}
+
+.scope canvas.handover-chart {
+  height: 160px;
+  cursor: default;
+}
+
+.scope canvas.handover-loss {
+  height: 40px;
+  margin-top: 4px;
+  cursor: default;
+}
+
+.handover-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.handover-nav .range-button {
+  padding: 0 8px;
+}
+
+.handover-nav .range-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+#burst-label.is-lost {
+  color: var(--alarm);
 }
 
 /* ---- Location panel ----------------------------------------------------
