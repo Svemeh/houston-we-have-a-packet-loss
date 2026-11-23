@@ -51,7 +51,6 @@
     if (point.routerIp) state.routerIp = point.routerIp;
     return point;
   };
-  const spaceEvidence = (t, widthMs, tel = state.tel) => segments.spaceEvidence(tel, t, widthMs);
   const classify = (point, tel = state.tel) => segments.classify(point, tel, state.routerIp);
   const dishOnlyDrops = (tel, hops, start, telWidthMs) => segments.dishOnlyDrops(tel, hops, start, telWidthMs, state.routerIp);
 
@@ -60,12 +59,10 @@
     const lan = lost(state.routerIp);
     const dish = Math.max(0, lost(DISH) - lan);
     const upstream = Math.max(0, Math.max(lost(CLOUDFLARE), lost(GOOGLE)) - lan - dish);
-    if (point.hops[POP]) {
-      const space = Math.max(0, lost(POP) - lan - dish);
-      return { lan, dish, space, beyond: Math.max(0, upstream - space) };
-    }
-    const space = upstream && spaceEvidence(point.t, point.w) ? upstream : 0;
-    return { lan, dish, space, beyond: upstream - space };
+    const paired = (key) => Math.max(...[CLOUDFLARE, GOOGLE].map((ip) => (point.hops[ip] ? point.hops[ip][key] : 0)));
+    const space = Math.max(0, Math.max(lost(POP), paired("popDown")) - lan - dish);
+    const beyond = Math.min(upstream, paired("popUp"));
+    return { lan, dish, space, beyond, unknown: Math.max(0, upstream - space - beyond) };
   };
 
   const windowEnd = () => Date.now();
@@ -186,7 +183,7 @@
     const { context, width, height } = prepareCanvas(byId("strip"));
     context.fillStyle = css("--edge");
     context.fillRect(0, height / 2 - 0.5, width, 1);
-    const counts = { lan: 0, dish: 0, space: 0, beyond: 0 };
+    const counts = { lan: 0, dish: 0, space: 0, beyond: 0, unknown: 0 };
     const start = windowStart();
     for (const point of state.hops) {
       if (point.t < start) continue;

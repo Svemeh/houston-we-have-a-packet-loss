@@ -16,6 +16,7 @@ type PingSample struct {
 	Error     string    `json:"error,omitempty"`
 	Sent      int       `json:"sent,omitempty"`
 	Dropped   int       `json:"dropped,omitempty"`
+	PoPUp     *bool     `json:"pop_answered,omitempty"`
 }
 
 func (sample PingSample) SampleTime() time.Time { return sample.Timestamp }

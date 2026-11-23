@@ -84,3 +84,41 @@ func TestDownsampleHopsCountsProbesAndLossSeconds(t *testing.T) {
 		t.Fatalf("end bucket %+v", end)
 	}
 }
+
+type fixedProbe struct{ sample PingSample }
+
+func (probe fixedProbe) PingOnce(context.Context) PingSample { return probe.sample }
+
+func TestPairedPingerRecordsThePoPAnswer(t *testing.T) {
+	lost := fixedProbe{PingSample{Target: "1.1.1.1", Lost: true}}
+	for _, test := range []struct {
+		answered, available bool
+		want                string
+	}{{true, true, "true"}, {false, true, "false"}, {false, false, "absent"}} {
+		paired := &PairedPinger{pinger: lost, pair: func(context.Context) (bool, bool) { return test.answered, test.available }}
+		sample := paired.PingOnce(context.Background())
+		got := "absent"
+		if sample.PoPUp != nil {
+			got = map[bool]string{true: "true", false: "false"}[*sample.PoPUp]
+		}
+		if got != test.want {
+			t.Errorf("answered=%v available=%v: pop_answered %s, want %s", test.answered, test.available, got, test.want)
+		}
+	}
+}
+
+func TestDownsampleHopsSplitsLossByPairedPoP(t *testing.T) {
+	start := time.Unix(4000, 0)
+	up, down := true, false
+	samples := []HopSample{
+		{Timestamp: start, Hops: map[string]HopResult{"e": {Lost: true, PoPUp: &up}}},
+		{Timestamp: start.Add(time.Second), Hops: map[string]HopResult{"e": {Lost: true, PoPUp: &down}}},
+		{Timestamp: start.Add(2 * time.Second), Hops: map[string]HopResult{"e": {Lost: true}}},
+		{Timestamp: start.Add(3 * time.Second), Hops: map[string]HopResult{"e": {RTTMs: 20, PoPUp: &down}}},
+	}
+	buckets, _ := DownsampleHops(samples, start, start.Add(4*time.Second), 1)
+	stats := buckets[0].Hops["e"]
+	if stats.LossSeconds != 3 || stats.LostPoPUp != 1 || stats.LostPoPDown != 1 {
+		t.Fatalf("got %+v", stats)
+	}
+}

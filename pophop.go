@@ -98,6 +98,13 @@ func (prober *PopProber) PingWithin(ctx context.Context, timeout time.Duration) 
 	return prober.PingOnce(probeCtx)
 }
 
+func (prober *PopProber) Pair(ctx context.Context) (answered, available bool) {
+	if prober.ttl.Load() == 0 {
+		return false, false
+	}
+	return !prober.PingOnce(ctx).Lost, true
+}
+
 func (prober *PopProber) KeepCurrent(ctx context.Context, hopPinger *HopPinger) {
 	added := false
 	for {

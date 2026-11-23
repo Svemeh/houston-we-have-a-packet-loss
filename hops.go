@@ -17,6 +17,7 @@ type HopResult struct {
 	Error   string  `json:"error,omitempty"`
 	Sent    int     `json:"sent,omitempty"`
 	Dropped int     `json:"dropped,omitempty"`
+	PoPUp   *bool   `json:"pop_answered,omitempty"`
 }
 
 func (result HopResult) Probes() (sent, lost int) {
@@ -48,16 +49,39 @@ type HopPinger struct {
 	logFile *LogFile[HopSample]
 }
 
-func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSample]) *HopPinger {
+func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSample], pair func(context.Context) (bool, bool)) *HopPinger {
 	pingers := make([]hopProbe, 0, len(targets))
 	for _, target := range targets {
-		if slices.Contains(HopLocalTargets, target) {
+		switch {
+		case slices.Contains(HopLocalTargets, target):
 			pingers = append(pingers, NewFastProbe(target, NewPinger(target).PingWithin))
-			continue
+		case pair != nil:
+			pingers = append(pingers, &PairedPinger{pinger: NewPinger(target), pair: pair})
+		default:
+			pingers = append(pingers, NewPinger(target))
 		}
-		pingers = append(pingers, NewPinger(target))
 	}
 	return &HopPinger{pingers: pingers, hub: hub, logFile: logFile}
+}
+
+type PairedPinger struct {
+	pinger hopProbe
+	pair   func(context.Context) (bool, bool)
+}
+
+func (paired *PairedPinger) PingOnce(ctx context.Context) PingSample {
+	var answered, available bool
+	done := make(chan struct{})
+	go func() {
+		answered, available = paired.pair(ctx)
+		close(done)
+	}()
+	sample := paired.pinger.PingOnce(ctx)
+	<-done
+	if available {
+		sample.PoPUp = &answered
+	}
+	return sample
 }
 
 type backgroundProbe interface {
@@ -131,7 +155,7 @@ func (hopPinger *HopPinger) PingAll(ctx context.Context) HopSample {
 	waitGroup.Wait()
 
 	for _, result := range results {
-		sample.Hops[result.Target] = HopResult{RTTMs: result.RTTMs, Lost: result.Lost, Error: result.Error, Sent: result.Sent, Dropped: result.Dropped}
+		sample.Hops[result.Target] = HopResult{RTTMs: result.RTTMs, Lost: result.Lost, Error: result.Error, Sent: result.Sent, Dropped: result.Dropped, PoPUp: result.PoPUp}
 	}
 	return sample
 }
@@ -149,6 +173,8 @@ type HopBucketStats struct {
 	Sent        int     `json:"sent"`
 	Lost        int     `json:"lost"`
 	LossSeconds int     `json:"loss_seconds"`
+	LostPoPUp   int     `json:"lost_pop_up,omitempty"`
+	LostPoPDown int     `json:"lost_pop_down,omitempty"`
 }
 
 // DownsampleHops collapses samples into at most maxPoints time buckets. Like
@@ -184,6 +210,11 @@ func DownsampleHops(samples []HopSample, windowStart, windowEnd time.Time, maxPo
 			stats.Lost += probesLost
 			if probesLost > 0 {
 				stats.LossSeconds++
+				if result.PoPUp != nil && *result.PoPUp {
+					stats.LostPoPUp++
+				} else if result.PoPUp != nil {
+					stats.LostPoPDown++
+				}
 			}
 			if !result.Lost && result.RTTMs > stats.MaxRTTMs {
 				stats.MaxRTTMs = result.RTTMs
