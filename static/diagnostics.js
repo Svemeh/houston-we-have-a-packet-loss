@@ -430,7 +430,8 @@
   const attachHover = (canvas) => {
     if (!canvas) return;
     canvas.addEventListener("mousemove", (event) => {
-      state.hoverMs = windowStart() + (event.offsetX / canvas.clientWidth) * state.range.spanMs;
+      const rect = canvas.getBoundingClientRect();
+      state.hoverMs = windowStart() + ((event.clientX - rect.left) / rect.width) * state.range.spanMs;
       redraw();
     });
     canvas.addEventListener("mouseleave", () => {
