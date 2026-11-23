@@ -298,10 +298,10 @@
     const gaps = bursts.filter((item) => item.lostCount > 0).map((item) => item.gapMs).sort((a, b) => a - b);
     const since = bursts.length ? `since ${hourClock(bursts[0].t)}` : "";
     byId("burst-legend").innerHTML = [
-      `<span><i style="background:var(--chart-download);opacity:.4"></i>usual range of ${bursts.length} handovers ${since}</span>`,
+      `<span><i style="background:var(--chart-download);opacity:.4"></i>p50–p90 RTT of ${bursts.length} bursts ${since}</span>`,
       `<span><i style="background:var(--text)"></i>${!burst || selected === bursts.length - 1 ? "latest handover" : `handover at ${clock(burst.t)}`}</span>`,
       `<span><i style="background:var(--alarm)"></i>lost ping</span>`,
-      gaps.length ? `<span>outage when pings are lost: usually <b>${quantile(gaps, 0.5)} ms</b> · 1 in 10 at least <b>${quantile(gaps, 0.9)} ms</b></span>` : "",
+      gaps.length ? `<span>loss gap p50 <b>${quantile(gaps, 0.5)} ms</b> · p90 <b>${quantile(gaps, 0.9)} ms</b></span>` : "",
     ].join("");
   };
 
