@@ -2,6 +2,8 @@ module houston
 
 go 1.26.0
 
+toolchain go1.26.11
+
 require (
 	github.com/joshuaferrara/go-satellite v0.0.0-20220611180459-512638c64e5b
 	github.com/prometheus-community/pro-bing v0.9.1
