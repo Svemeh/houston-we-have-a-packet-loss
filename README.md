@@ -2,9 +2,7 @@
 
 [![CI](https://github.com/Svemeh/houston-we-have-a-packet-loss/actions/workflows/ci.yml/badge.svg)](https://github.com/Svemeh/houston-we-have-a-packet-loss/actions/workflows/ci.yml)
 
-A self-hosted Starlink link monitor written in Go. It polls the dish's local gRPC API, pings every hop
-between the PC and the internet once a second, and serves a live dashboard — so when a game stutters
-you can see *where* the packets died, not just that they did.
+A self-hosted Starlink link monitor written in Go. It polls the dish's local gRPC API, pings every hop between the PC and the internet (router, dish and PoP 20 times a second), and serves a live dashboard — so when a game stutters you can see *where* the packets died, not just that they did.
 
 ![Dashboard](docs/dashboard.png)
 <sub>Dashboard on a live Gen 3 dish.</sub>
@@ -86,9 +84,12 @@ current distros. If the hops log `permission denied`, see the ICMP note under [R
 
 - **Live dashboard** — latency, loss, throughput, antenna power draw, link state and alarm strip, streamed over Server-Sent Events. Opens with 45 minutes of backfill; ranges up to 24 h.
 - **Incidents** — a list of loss stretches, latency spikes and dish-reported outages, filterable by kind. A loss is labelled by which targets dropped together (e.g. "internet lost, router and dish still answering").
-- **Per-hop pinger** — router (found from the default gateway), dish, Cloudflare and Google pinged in parallel each second, at a random point in the second so no part of it is missed.
+- **Per-hop pinger** — router (found from the default gateway), dish and Starlink PoP probed 20 times a second; Cloudflare and Google pinged once a second, at a random point in the second so no part of it is missed.
 - **Handover burst** — pings every 20 ms around each :12/:27/:42/:57 satellite reschedule, so the handover pause is measured directly.
 - **Dish telemetry** — status and outage history from the dish's gRPC API, including fields newer than the published protobufs (decoded by tag from the unknown-field bytes).
+- **Diagnostics page** — `/diagnostics`: the path from this machine through router, dish and PoP to the internet, coloured by where loss is now (red) or in the last minute (amber), plus a strip showing the first failing segment for each lost second and per-hop RTT and loss lanes.
+
+  ![Diagnostics page](docs/diagnostics.png)
 - **Hourly rollup** — loss, RTT p50/p90/p99/max and jitter per target, plus loss bucketed by second within the 15 s satellite slot. Kept forever at ~600 B/hour; feeds the jitter and handover-share tiles.
 
 ### Satellites
@@ -110,7 +111,7 @@ current distros. If the hops log `permission denied`, see the ICMP note under [R
 ```mermaid
 flowchart LR
     Dish[Starlink dish<br/>gRPC :9200] -->|GetStatus 1 s<br/>GetHistory 1 s| Collector
-    Net[Router · Dish · 1.1.1.1 · 8.8.8.8] -->|ICMP 1 s| Pingers
+    Net[Router · Dish · PoP · 1.1.1.1 · 8.8.8.8] -->|ICMP 20/s local + PoP<br/>1 s internet| Pingers
     Celestrak -->|SpaceX orbit elements, refreshed every 2 h| Sky[Sky tracker<br/>SGP4]
 
     Collector --> Hub1[Hub]
@@ -177,6 +178,8 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `/location` | Observer location: `GET`, or `POST` JSON `{"latitude_deg":…,"longitude_deg":…}` |
 | `/serving` · `/obstructionmap` | Latest serving-satellite slot · Houston's own obstruction map (`enabled:false` without `-track-satellite`) |
 | `/sky` | Sky view page (globe + serving satellite) |
+| `/diagnostics` | Diagnostics page (where the loss happens) |
+| `/handovers?range=1h` | Handover burst results |
 | `/constellation` | Every tracked satellite's SGP4 position and velocity (TEME) at one instant, for the sky page |
 
 ## Project layout
@@ -188,6 +191,8 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `antenna.go` · `fakeAntenna.go` | Dish gRPC collector · synthetic collector |
 | `outages.go` | Dish outage history, protobuf decoding, GPS time |
 | `ping.go` · `hops.go` | ICMP echo and the per-hop pinger (1.1.1.1 feeds the To Internet charts) |
+| `fastprobe.go` | Probes the router, dish and PoP 20 times a second and sums them up per second |
+| `pophop*.go` | Finds the Starlink PoP and probes it with TTL-limited pings |
 | `schedule.go` | Runs the 1 s pingers at a random point in each second |
 | `handover.go` | Handover burst prober, `handovers.jsonl` |
 | `gateway*.go` | Finds the LAN router from the default gateway |
@@ -198,7 +203,7 @@ Intervals, retention and thresholds live in [`const.go`](const.go).
 | `logFile.go` · `storage.go` | JSONL persistence, pruning, range reads, downsampling · the read interface the history routes use |
 | `hub.go` · `server.go` | SSE fan-out and HTTP routes |
 | `sky.go` · `settings.go` | Orbit element fetch/cache and SGP4 propagation · location saved from the dashboard |
-| `static/` | Dashboard (vanilla JS, canvas charts). `feed.js` streams the sky data for every panel, `readout.js` is the serving-satellite panel, `link.js` the 3D dish view, `globe.js` + `sky.html` the sky page |
+| `static/` | Dashboard (vanilla JS, canvas charts). `feed.js` streams the sky data for every panel, `readout.js` is the serving-satellite panel, `link.js` the 3D dish view, `globe.js` + `sky.html` the sky page, `diagnostics.html` + `diagnostics.js` + `handovers.js` the diagnostics page, `segments.js` the loss-segment rules shared with the dashboard's `minichain.js` card |
 | `static/vendor/` | three.js r128, topojson-client, Natural Earth 1:50m countries (world-atlas, requantised), NASA Blue Marble and Black Marble (2048 px) |
 | `install.sh` · `install.ps1` | Installers (macOS/Linux · Windows) |
 
