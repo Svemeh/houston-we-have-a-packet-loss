@@ -281,11 +281,11 @@
       lossCanvas.context.fillRect(xOf(stat.offset) - barWidth / 2, lossCanvas.height - 1 - barHeight, barWidth, barHeight);
     }
     lossCanvas.context.fillStyle = css("--label-dim");
-    lossCanvas.context.fillText(`${pct(lossTop)} of bursts lost this probe`, 4, 10);
+    lossCanvas.context.fillText(`${pct(lossTop)} of handovers lost this ping`, 4, 10);
 
     const label = byId("burst-label");
     if (!burst) {
-      label.textContent = "no bursts yet";
+      label.textContent = "no handovers yet";
     } else {
       const position = selected === bursts.length - 1 ? "latest" : `${selected + 1}/${bursts.length}`;
       const outcome = burst.lostCount ? `lost ${burst.lostCount}` : "clean";
@@ -298,10 +298,10 @@
     const gaps = bursts.filter((item) => item.lostCount > 0).map((item) => item.gapMs).sort((a, b) => a - b);
     const since = bursts.length ? `since ${hourClock(bursts[0].t)}` : "";
     byId("burst-legend").innerHTML = [
-      `<span><i style="background:var(--chart-download);opacity:.4"></i>p50–p90 RTT of ${bursts.length} bursts ${since}</span>`,
-      `<span><i style="background:var(--text)"></i>selected burst</span>`,
-      `<span><i style="background:var(--alarm)"></i>lost probe</span>`,
-      gaps.length ? `<span>loss gap p50 <b>${quantile(gaps, 0.5)} ms</b> · p90 <b>${quantile(gaps, 0.9)} ms</b></span>` : "",
+      `<span><i style="background:var(--chart-download);opacity:.4"></i>usual range of ${bursts.length} handovers ${since}</span>`,
+      `<span><i style="background:var(--text)"></i>${!burst || selected === bursts.length - 1 ? "latest handover" : `handover at ${clock(burst.t)}`}</span>`,
+      `<span><i style="background:var(--alarm)"></i>lost ping</span>`,
+      gaps.length ? `<span>outage when pings are lost: usually <b>${quantile(gaps, 0.5)} ms</b> · 1 in 10 at least <b>${quantile(gaps, 0.9)} ms</b></span>` : "",
     ].join("");
   };
 
@@ -314,7 +314,7 @@
     }
     const stats = byId("handover-stats");
     stats.textContent = bursts
-      ? `${bursts.toLocaleString()} bursts · ${pct((100 * withLoss) / bursts)} lost ≥1 probe · ${lostPings.toLocaleString()} probes lost`
+      ? `${bursts.toLocaleString()} handovers · ${pct((100 * withLoss) / bursts)} lost a ping · ${lostPings.toLocaleString()} pings lost`
       : "—";
   };
 
