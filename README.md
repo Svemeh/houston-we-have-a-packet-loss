@@ -85,7 +85,9 @@ current distros. If the hops log `permission denied`, see the ICMP note under [R
 - **Live dashboard** — latency, loss, throughput, antenna power draw, link state and alarm strip, streamed over Server-Sent Events. Opens with 45 minutes of backfill; ranges up to 24 h.
 - **Incidents** — a list of loss stretches, latency spikes and dish-reported outages, filterable by kind. A loss is labelled by which targets dropped together (e.g. "internet lost, router and dish still answering").
 - **Per-hop pinger** — router (found from the default gateway), dish and Starlink PoP probed 20 times a second; Cloudflare and Google pinged once a second, at a random point in the second so no part of it is missed.
-- **Handover burst** — pings every 20 ms around each :12/:27/:42/:57 satellite reschedule, so the handover pause is measured directly.
+- **Handover burst** — pings every 20 ms around each :12/:27/:42/:57 satellite reschedule, so the handover pause is measured directly. Shown on the diagnostics page: where in the 15 s slot loss falls, and RTT and lost pings around each handover.
+
+  ![Handovers on the diagnostics page](docs/handovers.png)
 - **Dish telemetry** — status and outage history from the dish's gRPC API, including fields newer than the published protobufs (decoded by tag from the unknown-field bytes).
 - **Diagnostics page** — `/diagnostics`: the path from this machine through router, dish and PoP to the internet, coloured by where loss is now (red) or in the last minute (amber), plus a strip showing the first failing segment for each lost second and per-hop RTT and loss lanes.
 
