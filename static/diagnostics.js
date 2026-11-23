@@ -31,6 +31,7 @@
   };
   const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour12: false });
   const fmtMs = (value) => (value == null ? "—" : `${Math.round(value)} ms`);
+  const fmtPct = (value) => (value == null ? "—" : `${value < 1 ? value.toFixed(2) : value.toFixed(1)}%`);
 
   const state = {
     range: RANGES.find((range) => range.id === DEFAULT_RANGE_ID),
@@ -55,7 +56,7 @@
   const dishOnlyDrops = (tel, hops, start, telWidthMs) => segments.dishOnlyDrops(tel, hops, start, telWidthMs, state.routerIp);
 
   const lostBySegment = (point) => {
-    const lost = (ip) => (ip && point.hops[ip] ? point.hops[ip].lost : 0);
+    const lost = (ip) => (ip && point.hops[ip] ? point.hops[ip].lossSeconds : 0);
     const lan = lost(state.routerIp);
     const dish = Math.max(0, lost(DISH) - lan);
     const upstream = Math.max(0, Math.max(lost(CLOUDFLARE), lost(GOOGLE)) - lan - dish);
@@ -240,7 +241,7 @@
     }
     return state.hops.filter((point) => point.t >= start && point.hops[lane.ip]).map((point) => {
       const hop = point.hops[lane.ip];
-      return { t: point.t, w: point.w, rtt: hop.rtt, lostFraction: hop.sent ? hop.lost / hop.sent : 0, lost: hop.lost };
+      return { t: point.t, w: point.w, rtt: hop.rtt, lostFraction: hop.sent ? hop.lost / hop.sent : 0, lost: hop.lost, sent: hop.sent };
     });
   };
 
@@ -292,7 +293,11 @@
     const lostTotal = lane.tel
       ? points.filter((point) => point.lostFraction > 0).length
       : points.reduce((sum, point) => sum + (point.lost || 0), 0);
-    const lossText = lane.tel ? `dish drop in ${lostTotal} ${state.telBucketMs > 1000 ? "buckets" : "s"}` : `${lostTotal} s lost`;
+    const sentTotal = points.reduce((sum, point) => sum + (point.sent || 0), 0);
+    const fast = !lane.tel && points.some((point) => point.sent > 2 * Math.max(1, point.w / 1000));
+    let lossText = `${lostTotal} s lost`;
+    if (lane.tel) lossText = `dish drop in ${lostTotal} ${state.telBucketMs > 1000 ? "buckets" : "s"}`;
+    else if (fast) lossText = `drop ${fmtPct(sentTotal ? (100 * lostTotal) / sentTotal : null)}`;
     const note = lane.ip === POP && !points.length ? "not probed" : `${fmtMs(latest && latest.rtt)} now · ${lossText}`;
     byId(`lane-note-${lane.key}`).textContent = lane.ip || lane.tel ? note : "";
   };
@@ -369,20 +374,28 @@
     const { recent, counts, states } = chain;
     const recentTel = state.liveTel.slice(firstIndexAtOrAfter(state.liveTel, since)).filter((sample) => sample.latency != null);
     const rttOf = (ip) => median(recent.map((point) => point.hops[ip] && point.hops[ip].rtt).filter((rtt) => rtt != null));
-    const lossText = (count) => (count ? `lost ${count} s` : "no loss");
+    const lossText = (key) => {
+      const all = counts[key], whole = chain.full[key];
+      if (!all) return "no loss";
+      return [whole ? `lost ${whole} s` : "", all > whole ? `drop in ${all - whole} s` : ""].filter(Boolean).join(" · ");
+    };
+    const recentPop = recent.map((point) => point.hops[POP]).filter(Boolean);
+    const popSent = recentPop.reduce((sum, hop) => sum + hop.sent, 0);
+    const probePct = popSent ? (100 * recentPop.reduce((sum, hop) => sum + hop.lost, 0)) / popSent : null;
     const probedPopMs = rttOf(POP);
     const popMs = probedPopMs != null ? probedPopMs : median(recentTel.map((sample) => sample.latency));
     const dropPct = recentTel.length ? (100 * recentTel.reduce((sum, sample) => sum + sample.drop, 0)) / recentTel.length : null;
 
     const noData = !recent.length;
     const routerPinged = recent.some((point) => state.routerIp && point.hops[state.routerIp]);
-    setSegment("lan", routerPinged ? fmtMs(rttOf(state.routerIp)) : "not pinged", routerPinged ? lossText(counts.lan) : "", states.lan, noData || !routerPinged);
-    setSegment("dish", fmtMs(rttOf(DISH)), lossText(counts.dish), states.dish, noData);
-    setSegment("space", `PoP ${fmtMs(popMs)}`, `${lossText(counts.space)} · dish drop ${dropPct == null ? "—" : dropPct.toFixed(1)}%`, states.space, probedPopMs == null && !recentTel.length);
+    setSegment("lan", routerPinged ? fmtMs(rttOf(state.routerIp)) : "not pinged", routerPinged ? lossText("lan") : "", states.lan, noData || !routerPinged);
+    setSegment("dish", fmtMs(rttOf(DISH)), lossText("dish"), states.dish, noData);
+    const popValue = probePct == null ? `PoP ${fmtMs(popMs)}` : `PoP ${fmtMs(popMs)} · drop ${fmtPct(probePct)}`;
+    setSegment("space", popValue, `${lossText("space")} · dish ${fmtPct(dropPct)}`, states.space, probedPopMs == null && !recentTel.length);
     for (const [key, ip] of [["cloudflare", CLOUDFLARE], ["google", GOOGLE]]) {
       const rtt = rttOf(ip);
       const beyond = rtt != null && popMs != null ? `+${Math.max(0, Math.round(rtt - popMs))} ms${probedPopMs == null ? " est." : ""}` : "—";
-      setSegment(key, beyond, lossText(counts[key]), states[key], noData);
+      setSegment(key, beyond, lossText(key), states[key], noData);
     }
 
     const shared = window.houstonSky || {};
@@ -408,7 +421,12 @@
     if (!point || Math.abs(point.t - t) > Math.max(3000, 2 * state.hopBucketMs)) return `${clock(t)} · no data`;
     const dishDropped = tel && Math.abs(tel.t - t) <= Math.max(1000, state.telBucketMs) && dishSawDrop(tel);
     const segment = classify(point) || (dishDropped ? "space" : null);
-    const hop = (ip) => (point.hops[ip] ? (point.hops[ip].lost ? `${point.hops[ip].lost}× lost` : fmtMs(point.hops[ip].rtt)) : "—");
+    const hop = (ip) => {
+      const result = point.hops[ip];
+      if (!result) return "—";
+      if (!result.lost) return fmtMs(result.rtt);
+      return result.sent > 1 ? `${fmtMs(result.rtt)} ${result.lost}/${result.sent} lost` : "lost";
+    };
     const parts = [
       clock(point.t),
       segment ? `loss: ${SEGMENTS[segment].label}` : "clean",

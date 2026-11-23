@@ -92,13 +92,21 @@ func (prober *PopProber) PingOnce(ctx context.Context) PingSample {
 	return sample
 }
 
+func (prober *PopProber) PingWithin(ctx context.Context, timeout time.Duration) PingSample {
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return prober.PingOnce(probeCtx)
+}
+
 func (prober *PopProber) KeepCurrent(ctx context.Context, hopPinger *HopPinger) {
 	added := false
 	for {
 		if prober.Discover(ctx) {
 			if !added {
 				log.Printf("pop hop: probing %s, %d hops out toward %s", prober.Gateway(), prober.ttl.Load(), PopTarget)
-				hopPinger.Add(prober)
+				fast := NewFastProbe(PopHopKey, prober.PingWithin)
+				go fast.Run(ctx)
+				hopPinger.Add(fast)
 				added = true
 			}
 		} else if !added {

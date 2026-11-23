@@ -126,3 +126,20 @@ func TestSummariseHourCountsDishDropsBySlot(t *testing.T) {
 		t.Errorf("slot 14 drops/samples = %d/%d, want 1/2", rollup.DishDropSlots[14], rollup.DishSlotSamples[14])
 	}
 }
+
+func TestSummariseHourCountsFastProbes(t *testing.T) {
+	hourStart := time.Date(2026, 9, 22, 15, 0, 0, 0, time.UTC)
+	target := testHopTargets[0]
+	at := func(second int) time.Time { return hourStart.Add(time.Duration(second) * time.Second) }
+
+	samples := []HopSample{
+		{Timestamp: at(0), Hops: map[string]HopResult{target: {RTTMs: 10, Sent: 20, Dropped: 2}}},
+		{Timestamp: at(1), Hops: map[string]HopResult{target: {RTTMs: 12, Sent: 19}}},
+		{Timestamp: at(2), Hops: map[string]HopResult{target: {Lost: true, Sent: 20, Dropped: 20}}},
+	}
+
+	stats := summariseHour(samples, nil, hourStart).Hops[target]
+	if stats.Sent != 59 || stats.Lost != 22 {
+		t.Fatalf("sent/lost = %d/%d, want 59/22", stats.Sent, stats.Lost)
+	}
+}
