@@ -54,8 +54,12 @@ func pairUnprivileged(request pairRequest) (pairResult, error) {
 			if err != nil {
 				break
 			}
-			if _, ok := timeExceededFrom(buffer[:n], oob[:oobn], request.target, request.popSeq); ok {
-				result.popAnswered = true
+			if gateway, ok := timeExceededFrom(buffer[:n], oob[:oobn], request.target, request.popSeq); ok {
+				if popGatewayRange.Contains(gateway) {
+					result.popAnswered = true
+				} else {
+					result.popWrongHop = true
+				}
 			}
 		}
 		for {

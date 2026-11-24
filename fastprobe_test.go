@@ -14,6 +14,7 @@ func TestSummariseFastProbes(t *testing.T) {
 		{done: true, lost: true},
 		{done: false},
 		{done: true, rtt: 20},
+		{done: true, lost: true, skipped: true},
 	}
 	sample := summariseFastProbes("x", at, results)
 	if sample.Sent != 5 || sample.Dropped != 2 || sample.Lost || sample.RTTMs != 20 {

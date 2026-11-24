@@ -26,6 +26,7 @@ type pairRequest struct {
 
 type pairResult struct {
 	popAnswered  bool
+	popWrongHop  bool
 	echoAnswered bool
 	echoRTT      time.Duration
 }
@@ -34,6 +35,7 @@ const (
 	pairReplyNone = iota
 	pairReplyPoP
 	pairReplyEcho
+	pairReplyWrongHop
 )
 
 func (prober *PopProber) PingPair(ctx context.Context, target string) (PingSample, error) {
@@ -67,7 +69,10 @@ func (prober *PopProber) PingPair(ctx context.Context, target string) (PingSampl
 	if err != nil {
 		return sample, err
 	}
-	if request.ttl > 0 {
+	if result.popWrongHop {
+		prober.requestRediscovery()
+	}
+	if request.ttl > 0 && !result.popWrongHop {
 		answered := result.popAnswered
 		sample.PoPUp = &answered
 	}
@@ -115,6 +120,8 @@ func exchangePair(conn *icmp.PacketConn, destination net.Addr, request pairReque
 		switch classifyPairReply(buffer[:n], addrIP(peer), request) {
 		case pairReplyPoP:
 			result.popAnswered = true
+		case pairReplyWrongHop:
+			result.popWrongHop = true
 		case pairReplyEcho:
 			if !result.echoAnswered {
 				result.echoAnswered, result.echoRTT = true, time.Since(echoSent)
@@ -125,7 +132,7 @@ func exchangePair(conn *icmp.PacketConn, destination net.Addr, request pairReque
 }
 
 func pairDone(result pairResult, request pairRequest) bool {
-	return result.echoAnswered && (request.ttl == 0 || result.popAnswered)
+	return result.echoAnswered && (request.ttl == 0 || result.popAnswered || result.popWrongHop)
 }
 
 func classifyPairReply(message []byte, from net.IP, request pairRequest) int {
@@ -136,6 +143,9 @@ func classifyPairReply(message []byte, from net.IP, request pairRequest) int {
 	switch body := reply.Body.(type) {
 	case *icmp.TimeExceeded:
 		if reply.Type == ipv4.ICMPTypeTimeExceeded && quotesOurEcho(body.Data, request.target, request.popSeq) {
+			if !popGatewayRange.Contains(from) {
+				return pairReplyWrongHop
+			}
 			return pairReplyPoP
 		}
 	case *icmp.Echo:

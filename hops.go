@@ -149,6 +149,9 @@ func (hopPinger *HopPinger) PingAll(ctx context.Context) HopSample {
 	waitGroup.Wait()
 
 	for _, result := range results {
+		if result.Error == popWrongHop {
+			continue
+		}
 		sample.Hops[result.Target] = HopResult{RTTMs: result.RTTMs, Lost: result.Lost, Error: result.Error, Sent: result.Sent, Dropped: result.Dropped, PoPUp: result.PoPUp}
 	}
 	return sample

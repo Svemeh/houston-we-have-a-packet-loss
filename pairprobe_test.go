@@ -33,6 +33,7 @@ func TestClassifyPairReply(t *testing.T) {
 		want    int
 	}{
 		{"pop answer", exceeded(10), gateway, pairReplyPoP},
+		{"answer from a hop that is not the PoP", exceeded(10), net.ParseIP("192.168.2.1"), pairReplyWrongHop},
 		{"time exceeded for another probe", exceeded(11), gateway, pairReplyNone},
 		{"echo reply", echoReply(11, append(token, "houston"...)), target, pairReplyEcho},
 		{"echo reply without our token", echoReply(11, []byte("someone else")), target, pairReplyNone},

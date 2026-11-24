@@ -17,10 +17,11 @@ const (
 )
 
 type fastProbeResult struct {
-	sent time.Time
-	done bool
-	lost bool
-	rtt  float64
+	sent    time.Time
+	done    bool
+	lost    bool
+	skipped bool
+	rtt     float64
 }
 
 type FastProbe struct {
@@ -59,6 +60,7 @@ func (fast *FastProbe) send(ctx context.Context) {
 		sample := fast.probe(ctx, FastProbeTimeout)
 		fast.mutex.Lock()
 		result.done, result.lost, result.rtt = true, sample.Lost, sample.RTTMs
+		result.skipped = sample.Error == popWrongHop
 		fast.mutex.Unlock()
 	}()
 }
@@ -90,9 +92,13 @@ func (fast *FastProbe) PingOnce(ctx context.Context) PingSample {
 }
 
 func summariseFastProbes(target string, timestamp time.Time, results []fastProbeResult) PingSample {
-	sample := PingSample{Timestamp: timestamp, Target: target, Sent: len(results)}
+	sample := PingSample{Timestamp: timestamp, Target: target}
 	answered := make([]float64, 0, len(results))
 	for _, result := range results {
+		if result.skipped {
+			continue
+		}
+		sample.Sent++
 		if result.done && !result.lost {
 			answered = append(answered, result.rtt)
 		}
@@ -100,7 +106,9 @@ func summariseFastProbes(target string, timestamp time.Time, results []fastProbe
 	sample.Dropped = sample.Sent - len(answered)
 	if len(answered) == 0 {
 		sample.Lost = true
-		if sample.Sent == 0 {
+		if sample.Sent == 0 && len(results) > 0 {
+			sample.Error = popWrongHop
+		} else if sample.Sent == 0 {
 			sample.Error = "no probes sent"
 		}
 		return sample
