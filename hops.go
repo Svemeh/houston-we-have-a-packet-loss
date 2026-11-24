@@ -49,14 +49,14 @@ type HopPinger struct {
 	logFile *LogFile[HopSample]
 }
 
-func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSample], pair func(context.Context) (bool, bool)) *HopPinger {
+func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSample], prober *PopProber) *HopPinger {
 	pingers := make([]hopProbe, 0, len(targets))
 	for _, target := range targets {
 		switch {
 		case slices.Contains(HopLocalTargets, target):
 			pingers = append(pingers, NewFastProbe(target, NewPinger(target).PingWithin))
-		case pair != nil:
-			pingers = append(pingers, &PairedPinger{pinger: NewPinger(target), pair: pair})
+		case prober != nil:
+			pingers = append(pingers, &PairedPinger{target: target, prober: prober, fallback: NewPinger(target)})
 		default:
 			pingers = append(pingers, NewPinger(target))
 		}
@@ -65,21 +65,15 @@ func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSam
 }
 
 type PairedPinger struct {
-	pinger hopProbe
-	pair   func(context.Context) (bool, bool)
+	target   string
+	prober   *PopProber
+	fallback hopProbe
 }
 
 func (paired *PairedPinger) PingOnce(ctx context.Context) PingSample {
-	var answered, available bool
-	done := make(chan struct{})
-	go func() {
-		answered, available = paired.pair(ctx)
-		close(done)
-	}()
-	sample := paired.pinger.PingOnce(ctx)
-	<-done
-	if available {
-		sample.PoPUp = &answered
+	sample, err := paired.prober.PingPair(ctx, paired.target)
+	if err != nil {
+		return paired.fallback.PingOnce(ctx)
 	}
 	return sample
 }

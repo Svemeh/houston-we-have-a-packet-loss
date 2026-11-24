@@ -167,7 +167,7 @@ func main() {
 			HopLocalTargets = []string{router, DishHopTarget}
 		}
 		popProber := NewPopProber()
-		hopPinger := NewHopPinger(hopTargets(router), hopsHub, hopsLogFile, popProber.Pair)
+		hopPinger := NewHopPinger(hopTargets(router), hopsHub, hopsLogFile, popProber)
 		go hopPinger.Run(ctx)
 		go popProber.KeepCurrent(ctx, hopPinger)
 		go NewHandoverProber(HandoverBurstTarget, handoverLogFile).Run(ctx)

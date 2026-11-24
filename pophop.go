@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
@@ -38,10 +39,13 @@ type PopProber struct {
 	gateway atomic.Value
 	seq     atomic.Uint32
 	id      int
+	token   []byte
 }
 
 func NewPopProber() *PopProber {
-	return &PopProber{target: net.ParseIP(PopTarget).To4(), id: os.Getpid() & 0xffff}
+	token := make([]byte, 8)
+	_, _ = rand.Read(token)
+	return &PopProber{target: net.ParseIP(PopTarget).To4(), id: os.Getpid() & 0xffff, token: token}
 }
 
 func (prober *PopProber) Gateway() string {
@@ -96,13 +100,6 @@ func (prober *PopProber) PingWithin(ctx context.Context, timeout time.Duration) 
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return prober.PingOnce(probeCtx)
-}
-
-func (prober *PopProber) Pair(ctx context.Context) (answered, available bool) {
-	if prober.ttl.Load() == 0 {
-		return false, false
-	}
-	return !prober.PingOnce(ctx).Lost, true
 }
 
 func (prober *PopProber) KeepCurrent(ctx context.Context, hopPinger *HopPinger) {
