@@ -422,7 +422,10 @@
       const result = point.hops[ip];
       if (!result) return "—";
       if (!result.lost) return fmtMs(result.rtt);
-      return result.sent > 1 ? `${fmtMs(result.rtt)} ${result.lost}/${result.sent} lost` : "lost";
+      if (result.sent > 1) return `${fmtMs(result.rtt)} ${result.lost}/${result.sent} lost`;
+      if (result.popUp) return "ping lost · PoP probe answered";
+      if (result.popDown) return "ping lost · PoP probe lost";
+      return "ping lost";
     };
     const parts = [
       clock(point.t),

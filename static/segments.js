@@ -18,7 +18,7 @@
     lan: { label: "machine → router", color: "--chart-latency" },
     dish: { label: "router → dish", color: "--chart-packet-loss" },
     space: { label: "dish → PoP", color: "--chart-download" },
-    beyond: { label: "PoP → internet", color: "--chart-upload" },
+    beyond: { label: "internet ping lost, PoP answered", color: "--chart-upload" },
     unknown: { label: "unknown", color: "--label" },
   };
 
