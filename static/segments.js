@@ -31,7 +31,9 @@
       const lossSeconds = value.loss_seconds != null ? value.loss_seconds : lost > 0 ? 1 : 0;
       const popUp = value.lost_pop_up != null ? value.lost_pop_up : lost > 0 && value.pop_answered === true ? 1 : 0;
       const popDown = value.lost_pop_down != null ? value.lost_pop_down : lost > 0 && value.pop_answered === false ? 1 : 0;
-      hops[ip] = { rtt: lost >= sent ? null : value.rtt_ms, sent, lost, lossSeconds, popUp, popDown };
+      const pairs = value.pairs != null ? value.pairs : value.pop_answered != null ? 1 : 0;
+      const pairPopLost = value.pair_pop_lost != null ? value.pair_pop_lost : value.pop_answered === false ? 1 : 0;
+      hops[ip] = { rtt: lost >= sent ? null : value.rtt_ms, sent, lost, lossSeconds, popUp, popDown, pairs, pairPopLost };
       if (!KNOWN_TARGETS.has(ip)) routerIp = ip;
     }
     return { t: Date.parse(sample.timestamp), w: widthMs, hops, routerIp };

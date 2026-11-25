@@ -172,6 +172,8 @@ type HopBucketStats struct {
 	LossSeconds int     `json:"loss_seconds"`
 	LostPoPUp   int     `json:"lost_pop_up,omitempty"`
 	LostPoPDown int     `json:"lost_pop_down,omitempty"`
+	Pairs       int     `json:"pairs,omitempty"`
+	PairPoPLost int     `json:"pair_pop_lost,omitempty"`
 }
 
 // DownsampleHops collapses samples into at most maxPoints time buckets. Like
@@ -205,6 +207,12 @@ func DownsampleHops(samples []HopSample, windowStart, windowEnd time.Time, maxPo
 			probesSent, probesLost := result.Probes()
 			stats.Sent += probesSent
 			stats.Lost += probesLost
+			if result.PoPUp != nil {
+				stats.Pairs++
+				if !*result.PoPUp {
+					stats.PairPoPLost++
+				}
+			}
 			if probesLost > 0 {
 				stats.LossSeconds++
 				if result.PoPUp != nil && *result.PoPUp {

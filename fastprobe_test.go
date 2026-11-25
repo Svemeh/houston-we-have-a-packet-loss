@@ -97,7 +97,7 @@ func TestDownsampleHopsSplitsLossByPairedPoP(t *testing.T) {
 	}
 	buckets, _ := DownsampleHops(samples, start, start.Add(4*time.Second), 1)
 	stats := buckets[0].Hops["e"]
-	if stats.LossSeconds != 3 || stats.LostPoPUp != 1 || stats.LostPoPDown != 1 {
+	if stats.LossSeconds != 3 || stats.LostPoPUp != 1 || stats.LostPoPDown != 1 || stats.Pairs != 3 || stats.PairPoPLost != 2 {
 		t.Fatalf("got %+v", stats)
 	}
 }

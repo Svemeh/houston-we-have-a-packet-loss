@@ -179,6 +179,23 @@
     context.globalAlpha = 1;
   };
 
+  const drawPairCompare = (start) => {
+    let pairs = 0, pingLost = 0, popLost = 0;
+    for (const point of state.hops) {
+      if (point.t < start) continue;
+      for (const ip of [CLOUDFLARE, GOOGLE]) {
+        const hop = point.hops[ip];
+        if (!hop || !hop.pairs) continue;
+        pairs += hop.pairs;
+        pingLost += hop.popUp + hop.popDown;
+        popLost += hop.pairPopLost;
+      }
+    }
+    byId("pair-compare").innerHTML = pairs
+      ? `<span>internet pings lost <b class="tabular-num">${fmtPct((100 * pingLost) / pairs)}</b></span><span>PoP probes sent with them lost <b class="tabular-num">${fmtPct((100 * popLost) / pairs)}</b></span><span>${pairs.toLocaleString()} pairs</span>`
+      : "";
+  };
+
   const drawStrip = () => {
     const { context, width, height } = prepareCanvas(byId("strip"));
     context.fillStyle = css("--edge");
@@ -203,6 +220,7 @@
     }
     counts.space += dishOnly.length;
     const atLeast = { space: dishOnly.length > 0 && state.telBucketMs > 1000 ? "≥" : "" };
+    drawPairCompare(start);
     drawMarker(context, width, height);
     byId("strip-range").textContent = `last ${state.range.id}`;
     byId("strip-legend").innerHTML = Object.entries(SEGMENTS)
