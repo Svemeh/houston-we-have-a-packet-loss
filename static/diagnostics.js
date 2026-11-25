@@ -181,8 +181,16 @@
 
   const drawPairCompare = (start) => {
     let pairs = 0, pingLost = 0, popLost = 0;
+    const probes = { router: [0, 0], dish: [0, 0], pop: [0, 0] };
+    const hopKeys = { router: state.routerIp, dish: DISH, pop: POP };
     for (const point of state.hops) {
       if (point.t < start) continue;
+      for (const [key, ip] of Object.entries(hopKeys)) {
+        const hop = ip && point.hops[ip];
+        if (!hop) continue;
+        probes[key][0] += hop.sent;
+        probes[key][1] += hop.lost;
+      }
       for (const ip of [CLOUDFLARE, GOOGLE]) {
         const hop = point.hops[ip];
         if (!hop || !hop.pairs) continue;
@@ -191,9 +199,10 @@
         popLost += hop.pairPopLost;
       }
     }
-    byId("pair-compare").innerHTML = pairs
-      ? `<span>internet pings lost <b class="tabular-num">${fmtPct((100 * pingLost) / pairs)}</b></span><span>PoP probes sent with them lost <b class="tabular-num">${fmtPct((100 * popLost) / pairs)}</b></span><span>${pairs.toLocaleString()} pairs</span>`
-      : "";
+    const share = (lost, sent) => `<b class="tabular-num">${sent ? fmtPct((100 * lost) / sent) : "—"}</b>`;
+    const parts = Object.entries(probes).map(([key, [sent, lost]]) => `${key === "pop" ? "PoP" : key} ${share(lost, sent)}`);
+    if (pairs) parts.push(`internet pings ${share(pingLost, pairs)}`, `PoP probes sent with them ${share(popLost, pairs)}`);
+    byId("pair-compare").innerHTML = `<span>lost: ${parts.join(" · ")}</span>`;
   };
 
   const drawStrip = () => {
