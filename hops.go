@@ -56,7 +56,11 @@ func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSam
 		case slices.Contains(HopLocalTargets, target):
 			pingers = append(pingers, NewFastProbe(target, NewPinger(target).PingWithin))
 		case prober != nil:
-			pingers = append(pingers, &PairedPinger{target: target, prober: prober, fallback: NewPinger(target)})
+			paired := &PairedPinger{target: target, prober: prober, fallback: NewPinger(target)}
+			if target == HopControlTarget {
+				paired.delay = PairStagger
+			}
+			pingers = append(pingers, paired)
 		default:
 			pingers = append(pingers, NewPinger(target))
 		}
@@ -68,9 +72,13 @@ type PairedPinger struct {
 	target   string
 	prober   *PopProber
 	fallback hopProbe
+	delay    time.Duration
 }
 
 func (paired *PairedPinger) PingOnce(ctx context.Context) PingSample {
+	if paired.delay > 0 && !sleepContext(ctx, paired.delay) {
+		return PingSample{Timestamp: time.Now(), Target: paired.target, Lost: true, Error: ctx.Err().Error()}
+	}
 	sample, err := paired.prober.PingPair(ctx, paired.target)
 	if err != nil {
 		return paired.fallback.PingOnce(ctx)
