@@ -185,9 +185,10 @@ func summariseHour(samples []HopSample, dishSamples []TelemetrySample, hourStart
 		}
 
 		for target, result := range sample.Hops {
-			sent[target]++
+			probesSent, probesLost := result.Probes()
+			sent[target] += probesSent
+			lost[target] += probesLost
 			if result.Lost {
-				lost[target]++
 				// A lost echo breaks the chain: the next RTT isn't a
 				// neighbour of the last one, so it starts a new run.
 				delete(previousRTT, target)

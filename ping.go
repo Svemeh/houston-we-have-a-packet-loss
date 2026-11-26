@@ -14,6 +14,9 @@ type PingSample struct {
 	RTTMs     float64   `json:"rtt_ms,omitempty"` // absent when lost
 	Lost      bool      `json:"lost"`
 	Error     string    `json:"error,omitempty"`
+	Sent      int       `json:"sent,omitempty"`
+	Dropped   int       `json:"dropped,omitempty"`
+	PoPUp     *bool     `json:"pop_answered,omitempty"`
 }
 
 func (sample PingSample) SampleTime() time.Time { return sample.Timestamp }
@@ -29,11 +32,15 @@ func NewPinger(target string) *Pinger {
 
 // PingOnce sends a single echo and waits up to PingTimeout for the reply.
 func (pinger *Pinger) PingOnce(ctx context.Context) PingSample {
+	return pinger.PingWithin(ctx, PingTimeout)
+}
+
+func (pinger *Pinger) PingWithin(ctx context.Context, timeout time.Duration) PingSample {
 	sample := PingSample{Timestamp: time.Now(), Target: pinger.target}
 
 	echo := probing.New(pinger.target)
 	echo.Count = 1
-	echo.Timeout = PingTimeout
+	echo.Timeout = timeout
 	echo.SetPrivileged(pinger.privileged)
 	echo.SetLogger(probing.NoopLogger{})
 
