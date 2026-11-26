@@ -137,6 +137,7 @@ const (
 
 	// Handover burst around every handover: unix_seconds % 15 == 12 (:12/:27/:42/:57 UTC).
 	HandoverBoundaryOffset   = 12
+	PairStagger              = 250 * time.Millisecond
 	HandoverBurstTarget      = HopEndTarget
 	HandoverBurstStep        = 20 * time.Millisecond // a handover loses only 1–2 echoes at ~12 ms spacing
 	HandoverBurstBefore      = 600 * time.Millisecond

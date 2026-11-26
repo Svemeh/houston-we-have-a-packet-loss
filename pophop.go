@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
@@ -33,15 +34,28 @@ func mustParseCIDR(cidr string) *net.IPNet {
 }
 
 type PopProber struct {
-	target  net.IP
-	ttl     atomic.Int32
-	gateway atomic.Value
-	seq     atomic.Uint32
-	id      int
+	target     net.IP
+	ttl        atomic.Int32
+	gateway    atomic.Value
+	seq        atomic.Uint32
+	id         int
+	token      []byte
+	rediscover chan struct{}
+}
+
+const popWrongHop = "answer did not come from the Starlink PoP"
+
+func (prober *PopProber) requestRediscovery() {
+	select {
+	case prober.rediscover <- struct{}{}:
+	default:
+	}
 }
 
 func NewPopProber() *PopProber {
-	return &PopProber{target: net.ParseIP(PopTarget).To4(), id: os.Getpid() & 0xffff}
+	token := make([]byte, 8)
+	_, _ = rand.Read(token)
+	return &PopProber{target: net.ParseIP(PopTarget).To4(), id: os.Getpid() & 0xffff, token: token, rediscover: make(chan struct{}, 1)}
 }
 
 func (prober *PopProber) Gateway() string {
@@ -84,6 +98,11 @@ func (prober *PopProber) PingOnce(ctx context.Context) PingSample {
 		}
 		return sample
 	}
+	if !popGatewayRange.Contains(from) {
+		prober.requestRediscovery()
+		sample.Lost, sample.Error = true, popWrongHop
+		return sample
+	}
 	if gateway := from.String(); gateway != prober.Gateway() {
 		log.Printf("pop hop: gateway is now %s (was %s)", gateway, prober.Gateway())
 		prober.gateway.Store(gateway)
@@ -92,22 +111,49 @@ func (prober *PopProber) PingOnce(ctx context.Context) PingSample {
 	return sample
 }
 
+func (prober *PopProber) PingWithin(ctx context.Context, timeout time.Duration) PingSample {
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return prober.PingOnce(probeCtx)
+}
+
 func (prober *PopProber) KeepCurrent(ctx context.Context, hopPinger *HopPinger) {
-	added := false
+	added, lost := false, false
 	for {
-		if prober.Discover(ctx) {
-			if !added {
-				log.Printf("pop hop: probing %s, %d hops out toward %s", prober.Gateway(), prober.ttl.Load(), PopTarget)
-				hopPinger.Add(prober)
-				added = true
-			}
-		} else if !added {
+		found := prober.Discover(ctx)
+		switch {
+		case found && !added:
+			log.Printf("pop hop: probing %s, %d hops out toward %s", prober.Gateway(), prober.ttl.Load(), PopTarget)
+			fast := NewFastProbe(PopHopKey, prober.PingWithin)
+			go fast.Run(ctx)
+			hopPinger.Add(fast)
+			added = true
+		case found && lost:
+			log.Printf("pop hop: found %s again, %d hops out", prober.Gateway(), prober.ttl.Load())
+		case !found && !lost:
 			log.Printf("pop hop: no Starlink gateway (%s) answered within %d hops; trying again in %s", popGatewayRange, PopMaxTTL, PopRediscoverInterval)
+		}
+		lost = !found
+
+		wait := time.After(PopRediscoverInterval)
+		if lost {
+			select {
+			case <-ctx.Done():
+				return
+			case <-wait:
+			}
+			select {
+			case <-prober.rediscover:
+			default:
+			}
+			continue
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(PopRediscoverInterval):
+		case <-wait:
+		case <-prober.rediscover:
+			log.Printf("pop hop: an answer came from outside %s; looking for the PoP again", popGatewayRange)
 		}
 	}
 }

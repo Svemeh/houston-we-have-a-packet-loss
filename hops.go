@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"slices"
 	"sync"
 	"time"
 )
@@ -11,9 +12,22 @@ import (
 // was lost: omitting it would make a genuine 0 ms reply indistinguishable from
 // a missing reading, which the first three days of logs managed to produce.
 type HopResult struct {
-	RTTMs float64 `json:"rtt_ms"`
-	Lost  bool    `json:"lost"`
-	Error string  `json:"error,omitempty"`
+	RTTMs   float64 `json:"rtt_ms"`
+	Lost    bool    `json:"lost"`
+	Error   string  `json:"error,omitempty"`
+	Sent    int     `json:"sent,omitempty"`
+	Dropped int     `json:"dropped,omitempty"`
+	PoPUp   *bool   `json:"pop_answered,omitempty"`
+}
+
+func (result HopResult) Probes() (sent, lost int) {
+	if result.Sent > 0 {
+		return result.Sent, result.Dropped
+	}
+	if result.Lost {
+		return 1, 1
+	}
+	return 1, 0
 }
 
 // HopSample is one round of echoes to every hop, sent at the same moment.
@@ -35,12 +49,45 @@ type HopPinger struct {
 	logFile *LogFile[HopSample]
 }
 
-func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSample]) *HopPinger {
+func NewHopPinger(targets []string, hub *Hub[HopSample], logFile *LogFile[HopSample], prober *PopProber) *HopPinger {
 	pingers := make([]hopProbe, 0, len(targets))
 	for _, target := range targets {
-		pingers = append(pingers, NewPinger(target))
+		switch {
+		case slices.Contains(HopLocalTargets, target):
+			pingers = append(pingers, NewFastProbe(target, NewPinger(target).PingWithin))
+		case prober != nil:
+			paired := &PairedPinger{target: target, prober: prober, fallback: NewPinger(target)}
+			if target == HopControlTarget {
+				paired.delay = PairStagger
+			}
+			pingers = append(pingers, paired)
+		default:
+			pingers = append(pingers, NewPinger(target))
+		}
 	}
 	return &HopPinger{pingers: pingers, hub: hub, logFile: logFile}
+}
+
+type PairedPinger struct {
+	target   string
+	prober   *PopProber
+	fallback hopProbe
+	delay    time.Duration
+}
+
+func (paired *PairedPinger) PingOnce(ctx context.Context) PingSample {
+	if paired.delay > 0 && !sleepContext(ctx, paired.delay) {
+		return PingSample{Timestamp: time.Now(), Target: paired.target, Lost: true, Error: ctx.Err().Error()}
+	}
+	sample, err := paired.prober.PingPair(ctx, paired.target)
+	if err != nil {
+		return paired.fallback.PingOnce(ctx)
+	}
+	return sample
+}
+
+type backgroundProbe interface {
+	Run(ctx context.Context)
 }
 
 type hopProbe interface {
@@ -57,6 +104,13 @@ func (hopPinger *HopPinger) Add(probe hopProbe) {
 // and when they clear.
 func (hopPinger *HopPinger) Run(ctx context.Context) {
 	lastErrors := make(map[string]string)
+	hopPinger.mutex.Lock()
+	for _, pinger := range hopPinger.pingers {
+		if background, ok := pinger.(backgroundProbe); ok {
+			go background.Run(ctx)
+		}
+	}
+	hopPinger.mutex.Unlock()
 
 	pingRound := func() {
 		sample := hopPinger.PingAll(ctx)
@@ -103,7 +157,10 @@ func (hopPinger *HopPinger) PingAll(ctx context.Context) HopSample {
 	waitGroup.Wait()
 
 	for _, result := range results {
-		sample.Hops[result.Target] = HopResult{RTTMs: result.RTTMs, Lost: result.Lost, Error: result.Error}
+		if result.Error == popWrongHop {
+			continue
+		}
+		sample.Hops[result.Target] = HopResult{RTTMs: result.RTTMs, Lost: result.Lost, Error: result.Error, Sent: result.Sent, Dropped: result.Dropped, PoPUp: result.PoPUp}
 	}
 	return sample
 }
@@ -117,9 +174,14 @@ type HopBucket struct {
 }
 
 type HopBucketStats struct {
-	MaxRTTMs float64 `json:"rtt_ms"` // 0 when every echo in the bucket was lost
-	Sent     int     `json:"sent"`
-	Lost     int     `json:"lost"`
+	MaxRTTMs    float64 `json:"rtt_ms"` // 0 when every echo in the bucket was lost
+	Sent        int     `json:"sent"`
+	Lost        int     `json:"lost"`
+	LossSeconds int     `json:"loss_seconds"`
+	LostPoPUp   int     `json:"lost_pop_up,omitempty"`
+	LostPoPDown int     `json:"lost_pop_down,omitempty"`
+	Pairs       int     `json:"pairs,omitempty"`
+	PairPoPLost int     `json:"pair_pop_lost,omitempty"`
 }
 
 // DownsampleHops collapses samples into at most maxPoints time buckets. Like
@@ -150,10 +212,24 @@ func DownsampleHops(samples []HopSample, windowStart, windowEnd time.Time, maxPo
 		bucket := &buckets[len(buckets)-1]
 		for target, result := range sample.Hops {
 			stats := bucket.Hops[target]
-			stats.Sent++
-			if result.Lost {
-				stats.Lost++
-			} else if result.RTTMs > stats.MaxRTTMs {
+			probesSent, probesLost := result.Probes()
+			stats.Sent += probesSent
+			stats.Lost += probesLost
+			if result.PoPUp != nil {
+				stats.Pairs++
+				if !*result.PoPUp {
+					stats.PairPoPLost++
+				}
+			}
+			if probesLost > 0 {
+				stats.LossSeconds++
+				if result.PoPUp != nil && *result.PoPUp {
+					stats.LostPoPUp++
+				} else if result.PoPUp != nil {
+					stats.LostPoPDown++
+				}
+			}
+			if !result.Lost && result.RTTMs > stats.MaxRTTMs {
 				stats.MaxRTTMs = result.RTTMs
 			}
 			bucket.Hops[target] = stats
