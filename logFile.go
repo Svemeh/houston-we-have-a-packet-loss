@@ -41,6 +41,8 @@ type LogFile[T Timestamped] struct {
 	mutex          sync.Mutex // serializes Append; concurrent HTTP reads are OS-safe
 	file           *os.File
 	bufferedWriter *bufio.Writer
+	pruneMutex     sync.Mutex
+	afterPruneCopy func()
 }
 
 func OpenLogFile[T Timestamped](path string) (*LogFile[T], error) {
@@ -83,29 +85,66 @@ func (logFile *LogFile[T]) Close() error {
 // Prune rewrites the log file, keeping only samples at or after cutoff.
 // Uses write-to-temp + atomic rename so a crash mid-prune never loses data.
 func (logFile *LogFile[T]) Prune(cutoff time.Time) error {
-	logFile.mutex.Lock()
-	defer logFile.mutex.Unlock()
+	logFile.pruneMutex.Lock()
+	defer logFile.pruneMutex.Unlock()
 
-	// Flush and close the current writer — we're about to replace the file
-	// underneath it.
-	if err := logFile.bufferedWriter.Flush(); err != nil {
-		return err
-	}
-	if err := logFile.file.Close(); err != nil {
+	copiedBytes, err := logFile.flushedSize()
+	if err != nil {
 		return err
 	}
 
 	tempPath := logFile.path + ".tmp"
-	kept, total, err := rewriteKeepingSamplesSince[T](logFile.path, tempPath, cutoff)
+	kept, total, err := rewriteKeepingSamplesSince[T](logFile.path, tempPath, cutoff, copiedBytes)
 	if err != nil {
-		_ = os.Remove(tempPath) // clean up on failure
-		// Best-effort: reopen the original so appends can resume even after a failed prune.
-		if reopenErr := logFile.reopenAppend(); reopenErr != nil {
-			return fmt.Errorf("prune failed: %w; reopen also failed: %v", err, reopenErr)
-		}
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if logFile.afterPruneCopy != nil {
+		logFile.afterPruneCopy()
+	}
+
+	if err := logFile.swapInPruned(tempPath, copiedBytes); err != nil {
 		return err
 	}
 
+	if dropped := total - kept; dropped > 0 {
+		log.Printf("pruned %d samples from %s older than %s (kept %d)", dropped, logFile.path, cutoff.Format(time.RFC3339), kept)
+	}
+	return nil
+}
+
+func (logFile *LogFile[T]) flushedSize() (int64, error) {
+	logFile.mutex.Lock()
+	defer logFile.mutex.Unlock()
+	if err := logFile.bufferedWriter.Flush(); err != nil {
+		return 0, err
+	}
+	fileInfo, err := logFile.file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	return fileInfo.Size(), nil
+}
+
+func (logFile *LogFile[T]) swapInPruned(tempPath string, copiedBytes int64) error {
+	logFile.mutex.Lock()
+	defer logFile.mutex.Unlock()
+
+	if err := logFile.bufferedWriter.Flush(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := appendFrom(logFile.path, tempPath, copiedBytes); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := logFile.file.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		if reopenErr := logFile.reopenAppend(); reopenErr != nil {
+			return fmt.Errorf("close failed: %w; reopen also failed: %v", err, reopenErr)
+		}
+		return err
+	}
 	if err := os.Rename(tempPath, logFile.path); err != nil {
 		_ = os.Remove(tempPath)
 		if reopenErr := logFile.reopenAppend(); reopenErr != nil {
@@ -113,11 +152,27 @@ func (logFile *LogFile[T]) Prune(cutoff time.Time) error {
 		}
 		return err
 	}
-
-	if dropped := total - kept; dropped > 0 {
-		log.Printf("pruned %d samples from %s older than %s (kept %d)", dropped, logFile.path, cutoff.Format(time.RFC3339), kept)
-	}
 	return logFile.reopenAppend()
+}
+
+func appendFrom(sourcePath, destPath string, offset int64) error {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	if _, err := source.Seek(offset, io.SeekStart); err != nil {
+		return err
+	}
+	dest, err := os.OpenFile(destPath, os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(dest, source); err != nil {
+		dest.Close()
+		return err
+	}
+	return dest.Close()
 }
 
 // reopenAppend restores logFile.file and logFile.bufferedWriter after a prune.
@@ -135,7 +190,7 @@ func (logFile *LogFile[T]) reopenAppend() error {
 // rewriteKeepingSamplesSince reads sourcePath line-by-line and writes the
 // samples at or after cutoff to destPath. Returns (kept, total, err).
 // Corrupted lines are skipped (matching the read-side behavior elsewhere).
-func rewriteKeepingSamplesSince[T Timestamped](sourcePath, destPath string, cutoff time.Time) (kept, total int, err error) {
+func rewriteKeepingSamplesSince[T Timestamped](sourcePath, destPath string, cutoff time.Time, maxBytes int64) (kept, total int, err error) {
 	source, err := os.Open(sourcePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -151,7 +206,7 @@ func rewriteKeepingSamplesSince[T Timestamped](sourcePath, destPath string, cuto
 	}
 	writer := bufio.NewWriter(dest)
 
-	scanner := bufio.NewScanner(source)
+	scanner := bufio.NewScanner(io.LimitReader(source, maxBytes))
 	scanner.Buffer(make([]byte, scannerInitialBufferBytes), scannerMaxLineBytes)
 
 	for scanner.Scan() {

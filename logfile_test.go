@@ -75,3 +75,65 @@ func TestLoadSamplesSkipsCorruptLinesAndMissingFile(t *testing.T) {
 		t.Errorf("got %+v, want the two intact lines", samples)
 	}
 }
+
+func TestPruneKeepsLinesAppendedDuringCopy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hops.jsonl")
+	logFile, err := OpenLogFile[PingSample](path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logFile.Close()
+
+	now := time.Now().Truncate(time.Second)
+	for minutesAgo := 10; minutesAgo >= 0; minutesAgo-- {
+		if err := logFile.Append(PingSample{Timestamp: now.Add(-time.Duration(minutesAgo) * time.Minute), Target: "1.1.1.1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	appendedDuringCopy := []time.Time{now.Add(time.Second), now.Add(2 * time.Second)}
+	logFile.afterPruneCopy = func() {
+		appended := make(chan error)
+		go func() {
+			for _, timestamp := range appendedDuringCopy {
+				if err := logFile.Append(PingSample{Timestamp: timestamp, Target: "during-copy"}); err != nil {
+					appended <- err
+					return
+				}
+			}
+			appended <- nil
+		}()
+		if err := <-appended; err != nil {
+			t.Error(err)
+		}
+		if _, err := LoadSamplesSince[PingSample](path, time.Time{}); err != nil {
+			t.Error(err)
+		}
+	}
+
+	if err := logFile.Prune(now.Add(-2 * time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := logFile.Append(PingSample{Timestamp: now.Add(3 * time.Second), Target: "after"}); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := LoadSamplesSince[PingSample](path, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 6 {
+		t.Fatalf("got %d samples, want 6", len(all))
+	}
+	for _, sample := range all {
+		if sample.Timestamp.Before(now.Add(-2 * time.Minute)) {
+			t.Errorf("old sample %v survived prune", sample.Timestamp)
+		}
+	}
+	if all[3].Target != "during-copy" || all[4].Target != "during-copy" || all[5].Target != "after" {
+		t.Errorf("tail = %q %q %q, want during-copy during-copy after", all[3].Target, all[4].Target, all[5].Target)
+	}
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Error("prune left its temp file behind")
+	}
+}
