@@ -199,6 +199,7 @@ func main() {
 		rollupLogPath:    *rollupLogPath,
 		outageLogPath:    *outageLogPath,
 		handoverLogPath:  *handoverLogPath,
+		servingLogPath:   *servingLogPath,
 		settingsPath:     DefaultSettingsPath,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ server error: %v\n", err)

@@ -23,6 +23,7 @@
     spanMs: 15 * 60 * 1000,
     rollups: [],
     bursts: [],
+    serving: new Map(),
     selectedT: null,
   };
 
@@ -53,6 +54,23 @@
       peak: answered.length ? Math.max(...answered) : null,
       failed: (sample.errors || 0) > 0,
     };
+  };
+
+  const slotKey = (ms) => Math.round(ms / 1000);
+
+  const addServing = (samples) => {
+    let added = 0;
+    for (const slot of samples || []) {
+      const key = slotKey(Date.parse(slot.slot_start));
+      if (!state.serving.has(key)) added++;
+      state.serving.set(key, {
+        matched: slot.status === "matched" && !!slot.best?.satellite,
+        satellite: slot.best?.satellite,
+      });
+    }
+    const cutoff = slotKey(Date.now() - Math.min(state.spanMs, MAX_BURST_RANGE_MS)) - SLOT_SECONDS;
+    for (const key of state.serving.keys()) if (key < cutoff) state.serving.delete(key);
+    return added;
   };
 
   const usableBursts = () => state.bursts.filter((burst) => !burst.failed && burst.rtts.length);
@@ -305,6 +323,24 @@
     ].join("");
   };
 
+  const drawSplit = () => {
+    const bursts = usableBursts();
+    const groups = { changed: { n: 0, lost: 0 }, same: { n: 0, lost: 0 } };
+    for (const burst of bursts) {
+      const before = state.serving.get(slotKey(burst.t) - SLOT_SECONDS);
+      const after = state.serving.get(slotKey(burst.t));
+      if (!before?.matched || !after?.matched) continue;
+      const group = before.satellite === after.satellite ? groups.same : groups.changed;
+      group.n++;
+      if (burst.lostCount > 0) group.lost++;
+    }
+    const split = byId("handover-split");
+    split.hidden = !groups.changed.n && !groups.same.n;
+    if (split.hidden) return;
+    const part = (group) => (group.n ? `<b>${pct((100 * group.lost) / group.n)}</b> of ${group.n.toLocaleString()}` : "—");
+    split.innerHTML = `<span>satellite changed: ${part(groups.changed)} lost a ping · same satellite: ${part(groups.same)} · since ${hourClock(bursts[0].t)}</span>`;
+  };
+
   const drawStats = () => {
     let bursts = 0, withLoss = 0, lostPings = 0;
     for (const rollup of state.rollups) {
@@ -322,6 +358,7 @@
     drawSlots();
     drawBurst();
     drawStats();
+    drawSplit();
   };
 
   const loadRollups = async () => {
@@ -337,26 +374,37 @@
   };
 
   const loadBursts = async () => {
-    try {
-      const payload = await fetchJson(`/handovers?range=${rangeParam(Math.min(state.spanMs, MAX_BURST_RANGE_MS))}`);
-      state.bursts = (payload.samples || []).map(normalizeBurst);
+    const spanMs = Math.min(state.spanMs, MAX_BURST_RANGE_MS);
+    const [bursts, serving] = await Promise.allSettled([
+      fetchJson(`/handovers?range=${rangeParam(spanMs)}`),
+      fetchJson(`/servinghistory?range=${rangeParam(spanMs + 60 * 1000)}`),
+    ]);
+    if (bursts.status === "fulfilled") {
+      state.bursts = (bursts.value.samples || []).map(normalizeBurst);
       state.selectedT = null;
-    } catch (error) {
-      console.warn("handover bursts failed", error);
+    } else {
+      console.warn("handover bursts failed", bursts.reason);
     }
+    state.serving = new Map();
+    if (serving.status === "fulfilled") addServing(serving.value.samples);
+    else console.warn("serving history failed", serving.reason);
     redraw();
   };
 
   const pollBursts = async () => {
     if (document.hidden) return;
     try {
-      const payload = await fetchJson("/handovers?range=1m");
+      const [payload, serving] = await Promise.all([fetchJson("/handovers?range=1m"), fetchJson("/servinghistory?range=1m").catch(() => null)]);
+      const addedSlots = serving ? addServing(serving.samples) : 0;
       const newest = state.bursts.length ? state.bursts[state.bursts.length - 1].t : 0;
       const fresh = (payload.samples || []).map(normalizeBurst).filter((burst) => burst.t > newest);
-      if (!fresh.length) return;
-      const cutoff = Date.now() - Math.min(state.spanMs, MAX_BURST_RANGE_MS);
-      state.bursts = state.bursts.concat(fresh).filter((burst) => burst.t >= cutoff);
-      redraw();
+      if (fresh.length) {
+        const cutoff = Date.now() - Math.min(state.spanMs, MAX_BURST_RANGE_MS);
+        state.bursts = state.bursts.concat(fresh).filter((burst) => burst.t >= cutoff);
+        redraw();
+      } else if (addedSlots) {
+        drawSplit();
+      }
     } catch {}
   };
 

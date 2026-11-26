@@ -88,9 +88,10 @@ const (
 	RoutePingEvents  = "/pingevents"
 	RoutePingHistory = "/pinghistory"
 
-	RouteSkyEvents = "/skyevents"
-	RouteLocation  = "/location"
-	RouteServing   = "/serving"
+	RouteSkyEvents      = "/skyevents"
+	RouteLocation       = "/location"
+	RouteServing        = "/serving"
+	RouteServingHistory = "/servinghistory"
 
 	RouteObstructionMap = "/obstructionmap"
 	RouteConstellation  = "/constellation"
