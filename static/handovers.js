@@ -8,6 +8,7 @@
   const LIVE_POLL_MS = 5000;
   const ROLLUP_REFETCH_MS = 5 * 60 * 1000;
   const HOUR_MS = 60 * 60 * 1000;
+  const SATELLITE_PENDING_MS = 60 * 1000;
 
   const byId = (id) => document.getElementById(id);
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -236,6 +237,14 @@
     context.stroke();
     context.setLineDash([]);
 
+    const satellite = burst ? satelliteText(burst) : null;
+    if (satellite) {
+      context.fillStyle = satellite.known ? css("--text") : css("--label-dim");
+      context.textAlign = "center";
+      context.fillText(satellite.text, zeroX, 10);
+      context.textAlign = "left";
+    }
+
     const band = stats.filter((stat) => stat.p50 != null && stat.offset != null);
     if (band.length > 1) {
       context.fillStyle = css("--chart-download");
@@ -315,11 +324,9 @@
 
     const gaps = bursts.filter((item) => item.lostCount > 0).map((item) => item.gapMs).sort((a, b) => a - b);
     const since = bursts.length ? `since ${hourClock(bursts[0].t)}` : "";
-    const changed = burst ? satelliteChanged(burst) : null;
-    const satellite = changed == null ? "" : changed ? " · switched satellite" : " · stayed on same satellite";
     byId("burst-legend").innerHTML = [
       `<span><i style="background:var(--chart-download);opacity:.4"></i>p50–p90 RTT of ${bursts.length} bursts ${since}</span>`,
-      `<span><i style="background:var(--text)"></i>${!burst || selected === bursts.length - 1 ? "latest handover" : `handover at ${clock(burst.t)}`}${satellite}</span>`,
+      `<span><i style="background:var(--text)"></i>${!burst || selected === bursts.length - 1 ? "latest handover" : `handover at ${clock(burst.t)}`}</span>`,
       `<span><i style="background:var(--alarm)"></i>lost ping</span>`,
       gaps.length ? `<span>loss gap p50 <b>${quantile(gaps, 0.5)} ms</b> · p90 <b>${quantile(gaps, 0.9)} ms</b></span>` : "",
     ].join("");
@@ -330,6 +337,13 @@
     const after = state.serving.get(slotKey(burst.t));
     if (!before?.matched || !after?.matched) return null;
     return before.satellite !== after.satellite;
+  };
+
+  const satelliteText = (burst) => {
+    const changed = satelliteChanged(burst);
+    if (changed != null) return { known: true, text: changed ? "satellite switched" : "satellite kept" };
+    const pending = state.serving.size && !state.serving.has(slotKey(burst.t)) && Date.now() - burst.t < SATELLITE_PENDING_MS;
+    return pending ? { known: false, text: "satellite ?" } : null;
   };
 
   const drawSplit = () => {
