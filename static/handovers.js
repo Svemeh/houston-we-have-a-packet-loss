@@ -315,22 +315,30 @@
 
     const gaps = bursts.filter((item) => item.lostCount > 0).map((item) => item.gapMs).sort((a, b) => a - b);
     const since = bursts.length ? `since ${hourClock(bursts[0].t)}` : "";
+    const changed = burst ? satelliteChanged(burst) : null;
+    const satellite = changed == null ? "" : changed ? " · switched satellite" : " · stayed on same satellite";
     byId("burst-legend").innerHTML = [
       `<span><i style="background:var(--chart-download);opacity:.4"></i>p50–p90 RTT of ${bursts.length} bursts ${since}</span>`,
-      `<span><i style="background:var(--text)"></i>${!burst || selected === bursts.length - 1 ? "latest handover" : `handover at ${clock(burst.t)}`}</span>`,
+      `<span><i style="background:var(--text)"></i>${!burst || selected === bursts.length - 1 ? "latest handover" : `handover at ${clock(burst.t)}`}${satellite}</span>`,
       `<span><i style="background:var(--alarm)"></i>lost ping</span>`,
       gaps.length ? `<span>loss gap p50 <b>${quantile(gaps, 0.5)} ms</b> · p90 <b>${quantile(gaps, 0.9)} ms</b></span>` : "",
     ].join("");
+  };
+
+  const satelliteChanged = (burst) => {
+    const before = state.serving.get(slotKey(burst.t) - SLOT_SECONDS);
+    const after = state.serving.get(slotKey(burst.t));
+    if (!before?.matched || !after?.matched) return null;
+    return before.satellite !== after.satellite;
   };
 
   const drawSplit = () => {
     const bursts = usableBursts();
     const groups = { changed: { n: 0, lost: 0 }, same: { n: 0, lost: 0 } };
     for (const burst of bursts) {
-      const before = state.serving.get(slotKey(burst.t) - SLOT_SECONDS);
-      const after = state.serving.get(slotKey(burst.t));
-      if (!before?.matched || !after?.matched) continue;
-      const group = before.satellite === after.satellite ? groups.same : groups.changed;
+      const changed = satelliteChanged(burst);
+      if (changed == null) continue;
+      const group = changed ? groups.changed : groups.same;
       group.n++;
       if (burst.lostCount > 0) group.lost++;
     }
@@ -403,6 +411,7 @@
         state.bursts = state.bursts.concat(fresh).filter((burst) => burst.t >= cutoff);
         redraw();
       } else if (addedSlots) {
+        drawBurst();
         drawSplit();
       }
     } catch {}
