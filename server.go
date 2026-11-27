@@ -39,6 +39,7 @@ type dashboardSources struct {
 	rollupLogPath    string
 	outageLogPath    string
 	handoverLogPath  string
+	servingLogPath   string
 
 	settingsPath string
 }
@@ -77,6 +78,8 @@ func serveDashboard(ctx context.Context, listenAddress string, sources dashboard
 
 	router.HandleFunc(RouteHandovers, newHistoryHandler(
 		NewLogFileSource[HandoverSample](sources.handoverLogPath), keepNewest[HandoverSample](HandoverSlotSeconds*time.Second), MaxHandoverRange, MaxHandoverPoints))
+	router.HandleFunc(RouteServingHistory, newHistoryHandler(
+		NewLogFileSource[ServingSlot](sources.servingLogPath), keepNewest[ServingSlot](HandoverSlotSeconds*time.Second), MaxHandoverRange, MaxHandoverPoints))
 
 	router.HandleFunc(RouteIncidents, newIncidentHandler(
 		NewLogFileSource[HopSample](sources.hopsLogPath),
